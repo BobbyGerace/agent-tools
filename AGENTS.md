@@ -108,8 +108,13 @@ Those are the backstop; the script is convenience.
 published), both wrappers around the script above. Enable them once per checkout:
 
 ```bash
-git config core.hooksPath scripts/hooks
+make setup      # hooks + denylist check
+make doctor     # what is and isn't configured
 ```
+
+The hooks pass `--require-denylist`, so a missing or empty `.check-public-private` **fails the
+commit** instead of passing with that category quietly switched off. If you hit that, the fix is
+`make denylist` and then filling it in — not `--no-verify`.
 
 If a hook blocks you, **read the finding rather than reaching for `--no-verify`.** Bypassing is
 available and sometimes correct, but it is a judgment you are making on the record. When the

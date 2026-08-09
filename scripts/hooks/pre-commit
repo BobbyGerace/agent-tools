@@ -9,7 +9,7 @@ cd "$(git rev-parse --show-toplevel)" || exit 0
 
 [ -x scripts/check-public.sh ] || exit 0
 
-if ! ./scripts/check-public.sh --staged; then
+if ! ./scripts/check-public.sh --staged --require-denylist; then
   cat >&2 <<'EOF'
 
 pre-commit: refusing the commit.

@@ -27,11 +27,13 @@ cd "$(dirname "$0")/.." || exit 2
 
 MODE=all
 RANGE=""
+REQUIRE_DENYLIST=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --diff|--staged|all) MODE="$1" ;;
     --range) MODE=--range; RANGE="${2:-}"; shift ;;
-    *) echo "usage: $0 [--diff|--staged|--range A..B]" >&2; exit 2 ;;
+    --require-denylist) REQUIRE_DENYLIST=1 ;;
+    *) echo "usage: $0 [--diff|--staged|--range A..B] [--require-denylist]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -88,14 +90,40 @@ scan "internal hostnames" \
 # The list has to stay untracked — publishing a list of an employer's internal names would leak
 # exactly what this repo must not contain. One extended-regex fragment per line, `#` comments ok.
 PRIVATE_FILE=".check-public-private"
-if [ -f "$PRIVATE_FILE" ]; then
-  PRIVATE_PATTERN=$(grep -vE '^[[:space:]]*(#|$)' "$PRIVATE_FILE" | paste -sd '|' -)
-  if [ -n "$PRIVATE_PATTERN" ]; then
-    scan "previously-removed private names ($PRIVATE_FILE)" "$PRIVATE_PATTERN"
+PRIVATE_PATTERN=""
+[ -f "$PRIVATE_FILE" ] && PRIVATE_PATTERN=$(grep -vE '^[[:space:]]*(#|$)' "$PRIVATE_FILE" | paste -sd '|' -)
+
+if [ -n "$PRIVATE_PATTERN" ]; then
+  scan "previously-removed private names ($PRIVATE_FILE)" "$PRIVATE_PATTERN"
+elif [ "$REQUIRE_DENYLIST" -eq 1 ]; then
+  # The hooks pass --require-denylist, so a missing or empty list fails instead of passing
+  # quietly. A green run with this category silently switched off is the exact false confidence
+  # the whole script exists to avoid — and it is invisible precisely when it matters, on a fresh
+  # clone where nobody has set it up yet.
+  if [ -f "$PRIVATE_FILE" ]; then
+    reason="$PRIVATE_FILE exists but defines no patterns (only comments or blanks)"
+  else
+    reason="$PRIVATE_FILE does not exist"
   fi
+  cat >&2 <<EOF
+
+FAIL — no denylist configured: $reason
+
+The shape-based checks above cannot recognize an employer's internal names; the denylist is what
+catches a name that was already removed from this repo once. Without it that category is off, and
+a pass here would mean less than it appears to.
+
+Create it (untracked — it is gitignored, and publishing a list of internal names would leak
+exactly what this repo must not contain), one extended-regex fragment per line:
+
+    make denylist        # scaffolds the file, then edit it
+    \$EDITOR $PRIVATE_FILE
+
+If you genuinely have nothing to list — a fork with no private history behind it — run the
+script without --require-denylist, or commit with --no-verify and know why you did.
+EOF
+  exit 1
 else
-  # Say so rather than skipping in silence: an absent denylist is a category not running, and
-  # the person who most needs to know is whoever assumed it was.
   echo "note: no $PRIVATE_FILE — the previously-removed-names check is not running."
   echo "      See AGENTS.md; it is one regex per line and must stay untracked."
 fi

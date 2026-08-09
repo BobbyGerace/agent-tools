@@ -20,10 +20,10 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
   if [ "$remote_sha" = "$ZERO" ]; then
     # New branch on the remote: no baseline to diff against, so scan everything it carries.
     echo "pre-push: new remote branch — scanning all tracked files"
-    ./scripts/check-public.sh || status=1
+    ./scripts/check-public.sh --require-denylist || status=1
   else
     echo "pre-push: scanning $remote_sha..$local_sha"
-    ./scripts/check-public.sh --range "$remote_sha..$local_sha" || status=1
+    ./scripts/check-public.sh --range "$remote_sha..$local_sha" --require-denylist || status=1
   fi
 done
 

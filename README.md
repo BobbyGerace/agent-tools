@@ -119,23 +119,31 @@ The script catches only strings whose *form* gives them away — token shapes, c
 with credentials, personal absolute paths. Whether a line is company-specific is semantic, and no
 regex decides it, so a clean run is not a pass. Reading the diff is the check.
 
-### Hooks
+### Setup
 
 ```bash
-git config core.hooksPath scripts/hooks
+make setup
 ```
 
-Enables `pre-commit` (scans staged content) and `pre-push` (scans the range being published).
-Git won't let a clone activate hooks by itself, so this is one command per checkout.
+Activates the hooks and verifies the denylist exists. Both halves are needed and **neither
+travels with a clone**, so this is once per checkout:
 
-Pre-push is the one that matters: a bad commit can be amended, a pushed one can't be
-unpublished. Both are bypassable with `--no-verify`, which is a decision to own rather than a
-formality.
+| Piece | In git? | Arrives with a clone? |
+| --- | --- | --- |
+| `scripts/hooks/*` | Yes | Yes — the files are there |
+| `core.hooksPath` activation | No, it's `.git/config` | **No** |
+| `.check-public-private` | No, gitignored | **No** |
+
+Git cannot activate hooks from a clone — if it could, cloning any repo would be arbitrary code
+execution. `make doctor` reports what's configured and what isn't.
+
+`pre-commit` scans staged content; `pre-push` scans the range being published and is the one that
+matters, since a bad commit can be amended but a pushed one can't be unpublished. Both are
+bypassable with `--no-verify`, which is a decision to own rather than a formality.
 
 ### The local denylist
 
-`scripts/check-public.sh` also greps an untracked `.check-public-private` when present — one
-regex per line, naming things that must never reappear here:
+`.check-public-private` lists names that must never reappear here, one regex per line:
 
 ```
 my-employer
@@ -144,8 +152,15 @@ Namespace\.[A-Z][A-Za-z]*
 TICKETPREFIX-[0-9]+
 ```
 
-It's gitignored, and has to stay that way: a list of an employer's internal names is exactly the
-material this repo must not publish. Understand what it is — a **regression test**, catching names
-someone already removed once. It cannot catch a new internal name, because a denylist only knows
-what someone thought to add. That gap is what reading the diff is for.
+`make denylist` scaffolds it. It's gitignored and must stay that way: a list of an employer's
+internal names is exactly the material this repo must not publish.
+
+**The hooks fail when it's missing rather than passing quietly** — a green run with this category
+silently switched off is worse than a red one, and it's invisible exactly when it matters, on a
+fresh clone nobody has set up. `make check` (without `--require-denylist`) still runs for
+exploring.
+
+Be clear on what it is: a **regression test**, catching names already removed once. It cannot
+catch a new internal name, because a denylist only knows what someone thought to add. That gap is
+what reading the diff is for.
 
