@@ -1,0 +1,669 @@
+#!/usr/bin/env python3
+"""verify-board — one window watching every active verify spec.
+
+The problem this exists to solve: shipping ~20 PRs a week, each wanting its
+checks watched for days, means a `verify-spec watch` pane per PR and eventually
+15 panes competing with real work — at which point verification gets skipped.
+
+So the design targets are (a) one window no matter how many specs, and (b) near
+zero ceremony to add or drop one. Adding is dropping a file in
+`$VERIFY_HOME/active/`; the board re-reads the directory every cycle, so
+there's nothing to restart. Dropping is one keystroke.
+
+Checks run on a per-spec backoff ladder (see `verify_core.interval_for`) in a
+background thread, so a 30-second psql query never freezes the UI.
+
+PROD: this reads production Postgres and Datadog, using the same readonly
+Keychain creds as `verify-spec`. macOS will prompt once per credential the first
+time this binary reads them — that's expected; choose Always Allow.
+"""
+
+from __future__ import annotations
+
+import curses
+import datetime as dt
+import os
+import subprocess
+import sys
+import textwrap
+import threading
+import time
+
+# Code and data are deliberately separate. `verify_core` lives next to this
+# script in the source-controlled skills repo; realpath() is what follows the
+# ~/.local/bin symlink back to it. VERIFY_HOME points at the *specs*, which are
+# never source-controlled because they carry live prod queries.
+CODE_DIR = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, CODE_DIR)
+
+try:
+    import verify_core as core
+except ImportError:
+    sys.exit(f"verify-board: cannot import verify_core from {CODE_DIR}")
+
+POLL_SECONDS = 0.5          # UI tick; also how fast a keypress is noticed
+RESCAN_SECONDS = 10         # how often active/ is re-read for new files
+
+
+# --------------------------------------------------------------------------- #
+# Board state                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+class Board:
+    """Shared state between the curses thread and the checking thread.
+
+    Everything the worker mutates is guarded by one lock. There's no queue
+    because the UI only ever needs the latest snapshot, never the history.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.specs: list[core.Spec] = []
+        self.results: dict[str, dict[str, dict]] = {}   # spec name -> label -> result
+        self.next_run: dict[str, dt.datetime] = {}
+        self.last_run: dict[str, dt.datetime] = {}
+        self.merge: dict[str, str | None] = {}           # spec name -> MERGED/OPEN/CLOSED/None
+        self.merge_checked: dict[str, dt.datetime] = {}
+        self.loaded_mtime: dict[str, float] = {}         # detects an edited spec
+        self.broken: dict[str, str] = {}                 # spec name -> parse error
+        self.running: str | None = None                  # spec name being checked
+        self.selected = 0
+        self.message = ""
+        self.stop = threading.Event()
+        self._restore_from_state()
+
+    # -- persistence -------------------------------------------------------- #
+
+    def _restore_from_state(self):
+        """Reload schedule and last-known verdicts so a restart isn't a reset.
+
+        Only check *states* are persisted, not queries or raw output — those go
+        stale and are large. So after a restart the board shows the right
+        pass/fail counts, and the detail view fills in on the next run.
+        """
+        state = core.load_state()
+        for name, entry in state.get("specs", {}).items():
+            self.results[name] = {
+                label: {"state": st, "detail": "(from last session)", "raw": "", "query": ""}
+                for label, st in (entry.get("results") or {}).items()
+            }
+            for field, target in (("next_run", self.next_run), ("last_run", self.last_run),
+                                  ("merge_checked", self.merge_checked)):
+                stamp = entry.get(field)
+                if stamp:
+                    try:
+                        target[name] = dt.datetime.fromisoformat(stamp)
+                    except ValueError:
+                        pass
+            if "merge" in entry:
+                self.merge[name] = entry["merge"]
+            if "mtime" in entry:
+                self.loaded_mtime[name] = entry["mtime"]
+
+    def _persist(self):
+        """Caller holds the lock."""
+        state = {"specs": {}}
+        for spec in self.specs:
+            entry = {"results": {
+                label: res["state"] for label, res in self.results.get(spec.name, {}).items()
+            }}
+            if spec.name in self.last_run:
+                entry["last_run"] = self.last_run[spec.name].isoformat(timespec="seconds")
+            if spec.name in self.next_run:
+                entry["next_run"] = self.next_run[spec.name].isoformat(timespec="seconds")
+            if spec.name in self.merge:
+                entry["merge"] = self.merge[spec.name]
+            if spec.name in self.merge_checked:
+                entry["merge_checked"] = \
+                    self.merge_checked[spec.name].isoformat(timespec="seconds")
+            if spec.name in self.loaded_mtime:
+                entry["mtime"] = self.loaded_mtime[spec.name]
+            state["specs"][spec.name] = entry
+        core.save_state(state)
+
+    # -- reading ------------------------------------------------------------ #
+
+    def rescan(self):
+        """Re-read active/. New files start due, edited files re-run, gone files drop.
+
+        A file that exists but won't parse keeps its previous row and state — a
+        half-saved TOML shouldn't make a spec flicker off the board and lose its
+        schedule for the ten seconds it takes to finish typing.
+        """
+        scan = core.discover_active()
+        now = dt.datetime.now()
+        with self.lock:
+            previous = {s.name: s for s in self.specs}
+            retained = [previous[n] for n in scan.broken if n in previous]
+            # Newest first — the spec you just shipped is the one you're watching.
+            # Name is the tiebreak so equal timestamps can't reorder between
+            # rescans and shuffle the cursor out from under a keystroke.
+            selected_name = (self.specs[self.selected].name
+                             if self.specs and self.selected < len(self.specs) else None)
+            self.specs = sorted(scan.specs + retained,
+                                key=lambda s: (-s.started.timestamp(), s.name))
+            self.broken = dict(scan.broken)
+
+            # An edit means the spec is worth re-running now, whatever tier its
+            # age put it in. Without this, fixing a broken query on a week-old
+            # spec would sit unchecked for up to a day.
+            for spec in scan.specs:
+                known = self.loaded_mtime.get(spec.name)
+                if known is not None and spec.mtime != known:
+                    self.next_run[spec.name] = now
+                    # The edit may have added or fixed `pr`, so the cached merge
+                    # answer is about a different question now. Dropping
+                    # merge_checked forces an immediate re-poll — without it,
+                    # adding `pr` to a spec left it running and red for up to
+                    # MERGE_RECHECK_SECONDS instead of going held.
+                    self.merge_checked.pop(spec.name, None)
+                    self.message = f"{spec.name} changed — re-checking"
+                self.loaded_mtime[spec.name] = spec.mtime
+
+            live = {s.name for s in self.specs}
+            for name in list(self.results) + list(self.merge) + list(self.loaded_mtime):
+                if name not in live:
+                    self.results.pop(name, None)
+                    self.next_run.pop(name, None)
+                    self.last_run.pop(name, None)
+                    self.merge.pop(name, None)
+                    self.merge_checked.pop(name, None)
+                    self.loaded_mtime.pop(name, None)
+
+            if scan.broken:
+                first = next(iter(scan.broken.items()))
+                self.message = (f"{len(scan.broken)} unreadable spec(s) — "
+                                f"{first[0]}: {first[1]}")
+
+            # Follow the selected spec by name, not by row. With newest-first,
+            # every new spec lands at index 0 and pushes everything down — so a
+            # positional cursor would silently move to a different spec between
+            # rescans, and `a` archives whatever it's pointing at.
+            names = [s.name for s in self.specs]
+            if selected_name in names:
+                self.selected = names.index(selected_name)
+            else:
+                self.selected = min(self.selected, max(0, len(self.specs) - 1))
+
+    def due(self) -> core.Spec | None:
+        """The next spec worth checking — held and unreadable specs are never due."""
+        now = dt.datetime.now()
+        with self.lock:
+            for spec in self.specs:
+                if spec.name in self.broken:
+                    continue
+                if not core.should_run(self.merge.get(spec.name)):
+                    continue
+                if self.next_run.get(spec.name, now) <= now:
+                    return spec
+        return None
+
+    def merge_stale(self) -> core.Spec | None:
+        """A spec whose merge state needs asking about.
+
+        Once merged it stays merged, so that answer is cached forever and only
+        unmerged (or unknown) PRs are re-polled.
+        """
+        now = dt.datetime.now()
+        with self.lock:
+            for spec in self.specs:
+                if spec.pr is None:
+                    continue
+                if self.merge.get(spec.name) == "MERGED":
+                    continue
+                checked = self.merge_checked.get(spec.name)
+                if checked is None or (now - checked).total_seconds() > core.MERGE_RECHECK_SECONDS:
+                    return spec
+        return None
+
+    def record_merge(self, spec: core.Spec, state: str | None):
+        with self.lock:
+            self.merge[spec.name] = state
+            self.merge_checked[spec.name] = dt.datetime.now()
+            self._persist()
+
+    def selected_spec(self) -> core.Spec | None:
+        with self.lock:
+            if not self.specs:
+                return None
+            return self.specs[min(self.selected, len(self.specs) - 1)]
+
+    # -- writing ------------------------------------------------------------ #
+
+    def record(self, spec: core.Spec, results: dict[str, dict]):
+        now = dt.datetime.now()
+        with self.lock:
+            prev = {l: r["state"] for l, r in self.results.get(spec.name, {}).items()}
+            self.results[spec.name] = results
+            self.last_run[spec.name] = now
+            self.next_run[spec.name] = now + dt.timedelta(seconds=core.interval_for(spec))
+            self._persist()
+        # Notify outside the lock — osascript takes ~100ms.
+        changed = core.state_changes(prev, results)
+        if changed:
+            core.notify(f"verify: {spec.title}", "; ".join(changed[:4]))
+
+    def run_now(self, spec: core.Spec):
+        with self.lock:
+            self.next_run[spec.name] = dt.datetime.now()
+
+
+# --------------------------------------------------------------------------- #
+# Checking thread                                                              #
+# --------------------------------------------------------------------------- #
+
+
+def checker(board: Board):
+    """Evaluate due specs, one at a time, until asked to stop.
+
+    Serial on purpose: these are prod queries, and a board with 30 checks
+    firing concurrently is a small thundering herd against the read replica.
+    """
+    last_scan = 0.0
+    while not board.stop.is_set():
+        if time.time() - last_scan > RESCAN_SECONDS:
+            board.rescan()
+            last_scan = time.time()
+
+        # Resolve merge state before checking anything: a spec whose PR is still
+        # open has nothing deployed to verify, and running it would produce reds
+        # that only mean "not shipped yet".
+        stale = board.merge_stale()
+        if stale is not None:
+            try:
+                board.record_merge(stale, core.merge_state(stale))
+            except Exception:
+                board.record_merge(stale, None)   # unknown: fail open, let it run
+            continue
+
+        spec = board.due()
+        if spec is None:
+            board.stop.wait(POLL_SECONDS)
+            continue
+
+        with board.lock:
+            board.running = spec.name
+        try:
+            results = core.evaluate_spec(spec)
+        except Exception as exc:  # a broken spec must not take the board down
+            results = {
+                f"{spec.name}:!": {"state": core.ERROR, "detail": str(exc),
+                                   "raw": "", "query": ""}
+            }
+        finally:
+            with board.lock:
+                board.running = None
+        board.record(spec, results)
+
+
+# --------------------------------------------------------------------------- #
+# Rendering                                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _pair(state: str) -> int:
+    # WARN shares yellow with ERROR — adjacent meanings, and the glyph separates
+    # them. Red keeps its single job: red means it is broken.
+    return {core.PASS: 1, core.FAIL: 2, core.WARN: 3, core.ERROR: 3}.get(state, 0)
+
+
+MARKS = {core.PASS: "✓", core.FAIL: "✗", core.WARN: "?", core.ERROR: "!"}
+
+
+def put(win, y: int, x: int, text: str, attr=0):
+    """addstr that clips instead of raising at the screen edge."""
+    height, width = win.getmaxyx()
+    if not (0 <= y < height) or x >= width:
+        return
+    win.addnstr(y, x, text, max(0, width - x - 1), attr)
+
+
+def fit_hint(options: list[str], width: int) -> str:
+    """Longest keybinding footer that fits. A footer can't wrap, so it shortens.
+
+    Passed longest-first; falls through to the shortest, which is allowed to
+    clip on a genuinely tiny pane.
+    """
+    for text in options:
+        if len(text) <= width:
+            return text
+    return options[-1]
+
+
+def wrap(text: str, attr: int, width: int) -> list[tuple[str, int]]:
+    """Break one logical line into as many display lines as it needs.
+
+    Continuations keep the original line's indentation, so a wrapped Datadog
+    query stays visually attached to the check it belongs to. Long unbroken
+    tokens (a query with no spaces) are split rather than clipped — truncating
+    a query is worse than an ugly break, because the part that got cut is
+    usually the part that explains the failure.
+    """
+    if width <= 0:
+        return []
+    if len(text) <= width:
+        return [(text, attr)]
+    indent = " " * (len(text) - len(text.lstrip()))
+    pieces = textwrap.wrap(
+        text.strip(),
+        width=max(8, width - len(indent)),
+        break_long_words=True,
+        break_on_hyphens=False,
+        drop_whitespace=True,
+    )
+    return [(indent + piece, attr) for piece in pieces] or [(text, attr)]
+
+
+def relative(when: dt.datetime | None, now: dt.datetime) -> str:
+    if when is None:
+        return "—"
+    seconds = abs((now - when).total_seconds())
+    if seconds < 90:
+        return f"{int(seconds)}s"
+    if seconds < 5400:
+        return f"{int(seconds // 60)}m"
+    if seconds < 172800:
+        return f"{int(seconds // 3600)}h"
+    return f"{int(seconds // 86400)}d"
+
+
+def spec_ref(spec: core.Spec) -> str:
+    """`repo#pr` — how a spec is named to a human, uniform across repos."""
+    if spec.repo and spec.pr:
+        return f"{spec.repo}#{spec.pr}"
+    if spec.pr:
+        return f"#{spec.pr}"
+    if spec.repo:
+        return f"{spec.repo} (no pr)"
+    return "(no pr)"
+
+
+def spec_verdict(results: dict[str, dict]) -> str:
+    """The row's colour: the most alarming state any of its checks is in."""
+    if not results:
+        return ""
+    return core.worst({r["state"] for r in results.values()})
+
+
+def draw_list(win, board: Board):
+    win.erase()
+    now = dt.datetime.now()
+    with board.lock:
+        specs, results = list(board.specs), dict(board.results)
+        last, nxt = dict(board.last_run), dict(board.next_run)
+        merge, broken = dict(board.merge), dict(board.broken)
+        selected, running, message = board.selected, board.running, board.message
+
+    held = sum(1 for s in specs if not core.should_run(merge.get(s.name)))
+    checks = sum(len(s.checks) for s in specs)
+    suffix = f"  ({held} held)" if held else ""
+    _, hdr_width = win.getmaxyx()
+    put(win, 0, 2, fit_hint([
+        f"verify-board — {len(specs)} spec(s), {checks} checks{suffix}",
+        f"verify-board — {len(specs)} specs, {checks} checks",
+        f"verify-board ({len(specs)})",
+        "verify-board",
+    ], hdr_width - 3), curses.A_BOLD)
+
+    width = max((len(s.name) for s in specs), default=10)
+    for row, spec in enumerate(specs):
+        res = results.get(spec.name, {})
+        holding = not core.should_run(merge.get(spec.name))
+        cursor = "▸" if row == selected else " "
+
+        if spec.name in broken:
+            # Row and state are retained so a mid-save doesn't lose the schedule;
+            # the line says the file is unreadable rather than showing stale data
+            # as if it were current.
+            line = f" {cursor} ⚠  ---  {spec.name:<{width}}  unreadable spec file"
+            attr = curses.color_pair(_pair(core.ERROR))
+        elif holding:
+            # No counts and no next-check time: neither means anything for a spec
+            # that isn't running. The reason takes their place.
+            line = (f" {cursor} ⏸  ---  {spec.name:<{width}}  "
+                    f"{core.hold_reason(merge.get(spec.name))}")
+            attr = curses.A_DIM
+        else:
+            passing, total = core.summarize(res) if res else (0, len(spec.checks))
+            verdict = spec_verdict(res)
+            mark = MARKS.get(verdict, "·")
+            age_days = int(spec.age.total_seconds() // 86400)
+            when = "checking…" if running == spec.name else relative(last.get(spec.name), now)
+            upcoming = relative(nxt.get(spec.name), now)
+            line = (f" {cursor} {mark} {passing}/{total}  {spec.name:<{width}}  "
+                    f"{when:>9}   next {upcoming:>4}   d{age_days}")
+            attr = curses.color_pair(_pair(verdict))
+
+        # One uniform trailing column. Special-casing one repo as "the default"
+        # meant its rows showed a bare #1234 while every other repo showed only a
+        # bracketed name and no number at all — two formats, neither complete.
+        # `repo#pr` is the same shape for every row.
+        line += f"   {spec_ref(spec)}"
+
+        if row == selected:
+            attr |= curses.A_REVERSE
+        put(win, row + 2, 0, line, attr)
+
+    if not specs:
+        put(win, 3, 4, f"nothing in {core.ACTIVE_DIR}", curses.A_DIM)
+        put(win, 4, 4, "drop a spec there and it shows up within 10s", curses.A_DIM)
+
+    height, _ = win.getmaxyx()
+    if message:
+        put(win, height - 2, 2, message, curses.A_BOLD)
+    _, list_width = win.getmaxyx()
+    put(win, height - 1, 2, fit_hint([
+        "jk/↑↓ select   l/enter detail   gG top/bottom   "
+        "r run now   a archive   c copy claude cmd   q quit",
+        "jk select   l detail   gG top/bot   r run   a archive   c copy   q quit",
+        "jk  l detail  r run  a arch  c copy  q quit",
+        "jk l r a c q",
+    ], list_width - 3), curses.A_DIM)
+    win.refresh()
+
+
+def draw_detail(win, board: Board, spec: core.Spec, scroll: int) -> int:
+    """Render one spec's checks with evidence. Returns the max scroll offset."""
+    win.erase()
+    with board.lock:
+        results = dict(board.results.get(spec.name, {}))
+        last = board.last_run.get(spec.name)
+        merge = board.merge.get(spec.name)
+
+    lines: list[tuple[str, int]] = []
+    header = f"{spec.title}   {spec_ref(spec)}"
+    lines.append((header, curses.A_BOLD))
+    meta = f"{spec.repo or '—'} · started {spec.started_date} · "
+    meta += f"checked {relative(last, dt.datetime.now())} ago" if last else "not yet checked"
+    lines.append((meta, curses.A_DIM))
+    lines.append(("", 0))
+
+    with board.lock:
+        broken_msg = board.broken.get(spec.name)
+    if broken_msg:
+        lines.append(("⚠  Spec file is unreadable", curses.A_BOLD))
+        lines.append((f"   {broken_msg}", curses.A_DIM))
+        lines.append(("   Showing the last version that loaded. Checks are paused until",
+                      curses.A_DIM))
+        lines.append(("   the file parses again.", curses.A_DIM))
+        lines.append(("", 0))
+    elif not core.should_run(merge):
+        lines.append((f"⏸  Held: {core.hold_reason(merge)}", curses.A_BOLD))
+        lines.append(("   Checks don't run until the PR merges — nothing is deployed to",
+                      curses.A_DIM))
+        lines.append(("   verify yet, so a red here would only mean 'not shipped'.",
+                      curses.A_DIM))
+        lines.append(("", 0))
+
+    for check in spec.checks:
+        res = results.get(check["label"])
+        if not res:
+            lines.append((f"  ·  {check['name']}   (pending)", curses.A_DIM))
+            continue
+        lines.append((f"  {_mark(res['state'])}  {check['name']}   {res['detail']}",
+                      curses.color_pair(_pair(res["state"]))))
+        # Evidence only where it earns the space: a passing check's query is
+        # noise, but a failing one is exactly what you opened this view for.
+        if res["state"] in (core.FAIL, core.WARN, core.ERROR):
+            for qline in (res.get("query") or "").strip().splitlines():
+                lines.append((f"        {qline.strip()}", curses.A_DIM))
+            if check.get("healthy"):
+                lines.append((f"        expect: {check['healthy']}", curses.A_DIM))
+            for rline in (res.get("raw") or "").splitlines()[:6]:
+                lines.append((f"        got: {rline}", curses.A_DIM))
+        lines.append(("", 0))
+
+    height, width = win.getmaxyx()
+    body = height - 2
+    # x=2 for the text, and put() reserves the last column.
+    wrapped: list[tuple[str, int]] = []
+    for text, attr in lines:
+        wrapped.extend(wrap(text, attr, width - 3) if text else [(text, attr)])
+    max_scroll = max(0, len(wrapped) - body)
+    scroll = min(scroll, max_scroll)
+    for row, (text, attr) in enumerate(wrapped[scroll:scroll + body]):
+        put(win, row, 2, text, attr)
+    position = (f"   [{scroll + 1}-{min(scroll + body, len(wrapped))}/{len(wrapped)}]"
+                if max_scroll else "")
+    hint = fit_hint([
+        "jk/↑↓ scroll   gG top/bottom   r run now   h/esc/q back" + position,
+        "jk scroll   gG top/bot   r run   h back" + position,
+        "jk gG r h" + position,
+        "h back",
+    ], width - 3)
+    put(win, height - 1, 2, hint, curses.A_DIM)
+    win.refresh()
+    return max_scroll
+
+
+def _mark(state: str) -> str:
+    return MARKS.get(state, "·")
+
+
+# --------------------------------------------------------------------------- #
+# Actions                                                                      #
+# --------------------------------------------------------------------------- #
+
+
+def investigate_command(spec: core.Spec) -> str:
+    """A prompt seeded for a fresh Claude session on a failing spec.
+
+    Copied rather than launched: spawning an interactive `claude` from inside a
+    curses app means two programs fighting for the terminal.
+    """
+    return (
+        f'claude "verify checks are failing in {spec.path} — read the spec, run the '
+        f'failing queries read-only, and tell me whether it is a real regression '
+        f'or a bad check"'
+    )
+
+
+def copy_to_clipboard(text: str) -> bool:
+    try:
+        subprocess.run(["pbcopy"], input=text, text=True, check=True, timeout=5)
+        return True
+    except Exception:
+        return False
+
+
+# --------------------------------------------------------------------------- #
+# Main loop                                                                    #
+# --------------------------------------------------------------------------- #
+
+
+def run(stdscr, board: Board):
+    curses.curs_set(0)
+    curses.use_default_colors()
+    for index, color in ((1, curses.COLOR_GREEN), (2, curses.COLOR_RED),
+                         (3, curses.COLOR_YELLOW)):
+        curses.init_pair(index, color, -1)
+    stdscr.timeout(int(POLL_SECONDS * 1000))
+
+    detail: core.Spec | None = None
+    scroll = 0
+
+    while True:
+        if detail is None:
+            draw_list(stdscr, board)
+        else:
+            max_scroll = draw_detail(stdscr, board, detail, scroll)
+
+        key = stdscr.getch()
+        if key == -1:
+            continue
+        with board.lock:
+            board.message = ""
+
+        if detail is not None:
+            if key in (27, ord("q"), ord("h"), curses.KEY_LEFT):
+                detail, scroll = None, 0
+            elif key in (curses.KEY_DOWN, ord("j")):
+                scroll = min(scroll + 1, max_scroll)
+            elif key in (curses.KEY_UP, ord("k")):
+                scroll = max(0, scroll - 1)
+            elif key in (ord("g"), curses.KEY_HOME):
+                scroll = 0
+            elif key in (ord("G"), curses.KEY_END):
+                scroll = max_scroll
+            elif key == ord("r"):
+                board.run_now(detail)
+            continue
+
+        if key in (ord("q"), 27):
+            return
+        if key in (curses.KEY_DOWN, ord("j")):
+            with board.lock:
+                board.selected = min(board.selected + 1, max(0, len(board.specs) - 1))
+        elif key in (curses.KEY_UP, ord("k")):
+            with board.lock:
+                board.selected = max(0, board.selected - 1)
+        elif key in (ord("g"), curses.KEY_HOME):
+            with board.lock:
+                board.selected = 0
+        elif key in (ord("G"), curses.KEY_END):
+            with board.lock:
+                board.selected = max(0, len(board.specs) - 1)
+        elif key in (curses.KEY_ENTER, 10, 13, ord("l"), curses.KEY_RIGHT):
+            spec = board.selected_spec()
+            if spec:
+                detail, scroll = spec, 0
+        elif key == ord("r"):
+            spec = board.selected_spec()
+            if spec:
+                board.run_now(spec)
+                with board.lock:
+                    board.message = f"queued {spec.name}"
+        elif key == ord("a"):
+            spec = board.selected_spec()
+            if spec:
+                core.archive_spec(spec)
+                board.rescan()
+                with board.lock:
+                    board.message = f"archived {spec.name}"
+        elif key == ord("c"):
+            spec = board.selected_spec()
+            if spec:
+                ok = copy_to_clipboard(investigate_command(spec))
+                with board.lock:
+                    board.message = ("copied investigate command for "
+                                     f"{spec.name}") if ok else "pbcopy failed"
+
+
+def main() -> int:
+    if not os.path.isdir(core.ACTIVE_DIR):
+        os.makedirs(core.ACTIVE_DIR, exist_ok=True)
+    board = Board()
+    board.rescan()
+    worker = threading.Thread(target=checker, args=(board,), daemon=True)
+    worker.start()
+    try:
+        curses.wrapper(run, board)
+    finally:
+        board.stop.set()
+        worker.join(timeout=2)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

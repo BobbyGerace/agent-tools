@@ -1,0 +1,6 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local regression denylist for scripts/check-public.sh — never commit this.
+.check-public-private

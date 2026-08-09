@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Scan staged content before it becomes a commit. Enable with:
+#
+#   git config core.hooksPath scripts/hooks
+#
+# Git deliberately will not let a clone activate hooks by itself, so this is opt-in per checkout.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 0
+
+[ -x scripts/check-public.sh ] || exit 0
+
+if ! ./scripts/check-public.sh --staged; then
+  cat >&2 <<'EOF'
+
+pre-commit: refusing the commit.
+
+Fix the findings, or `git commit --no-verify` if you have judged them false positives. Bypassing
+is a decision to own, not a formality — and if a finding is in a change you did not author, ask
+rather than bypassing on someone else's behalf.
+EOF
+  exit 1
+fi

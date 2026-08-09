@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""verify-spec — run a PR's prod verification checks on a watch loop.
+
+Two roles, deliberately split:
+
+  * AUTHOR (Claude): writes a declarative TOML spec — pure data (SQL / Datadog
+    query + a pass/fail threshold). Can run `schema` and `validate` (both
+    network-free). Must NOT run `run`/`watch` against prod.
+  * RUNNER (you): `run` / `watch` execute against prod, reading readonly creds
+    from the macOS Keychain. This is the only path that touches the network.
+
+Spec loading, credentials, connectors, and evaluation live in `verify_core`,
+shared with `verify-board`. This file is the single-spec CLI: argument parsing
+and terminal rendering. `verify-board` is the aggregate view over
+$VERIFY_HOME/active/.
+"""
+
+from __future__ import annotations
+
+import argparse
+import getpass
+import os
+import sys
+import time
+
+# Code and data are deliberately separate. `verify_core` lives next to this
+# script in the source-controlled skills repo; realpath() is what follows the
+# ~/.local/bin symlink back to it. VERIFY_HOME points at the *specs*, which are
+# never source-controlled because they carry live prod queries.
+CODE_DIR = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, CODE_DIR)
+
+try:
+    import verify_core as core
+except ImportError:
+    sys.exit(f"verify-spec: cannot import verify_core from {CODE_DIR}")
+
+PASS, FAIL, WARN, ERROR = core.PASS, core.FAIL, core.WARN, core.ERROR
+
+
+# --------------------------------------------------------------------------- #
+# Output                                                                       #
+# --------------------------------------------------------------------------- #
+
+
+# WARN and ERR share yellow: both mean "go look, this is not conclusive".
+_COLORS = {PASS: "\033[1;32m", FAIL: "\033[1;31m",
+           WARN: "\033[1;33m", ERROR: "\033[1;33m"}
+_RESET = "\033[0m"
+
+
+def _use_color() -> bool:
+    return sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
+
+
+def _tag(state: str) -> str:
+    """The [PASS]/[FAIL]/[ERR ] badge, colored when stdout is a terminal."""
+    badge = f"[{state}]"
+    if not _use_color():
+        return badge
+    return f"{_COLORS.get(state, '')}{badge}{_RESET}"
+
+
+def print_board(checks: list[dict], results: dict, stamp: str, verbose: bool = False):
+    width = max((len(c["label"]) for c in checks), default=0)
+    print(f"\n  verify-spec @ {stamp}")
+    for check in checks:
+        res = results[check["label"]]
+        print(f"  {_tag(res['state'])} {check['label']:<{width}}  {res['detail']}")
+        # Show the query + raw result whenever something's wrong, or for every
+        # check under -v, so a green/red traces to exactly what ran. A bad query
+        # that returns zero rows is a silent false pass otherwise.
+        if verbose or res["state"] in (FAIL, WARN, ERROR):
+            _print_evidence(res, check)
+    print()
+
+
+def _print_evidence(res: dict, check: dict):
+    """Print the query, the expectation, and the raw result under a check."""
+    for i, line in enumerate(res["query"].strip().splitlines()):
+        print(("      query:  " if i == 0 else "              ") + line)
+    if check.get("healthy"):
+        print(f"      expect: {check['healthy']}")
+    if res.get("raw"):
+        head = res["raw"].splitlines()[:8] or [""]
+        print("      result: " + head[0])
+        for line in head[1:]:
+            print("              " + line)
+
+
+# --------------------------------------------------------------------------- #
+# Subcommands                                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def cmd_run(args) -> int:
+    checks = core.discover_specs(args.spec)
+    results = {c["label"]: core.evaluate(c) for c in checks}
+    print_board(checks, results, _now(), verbose=args.verbose)
+    # A warn is not proof, so it does not fail the run — it is shown and you judge.
+    return 0 if not any(r["state"] in (FAIL, ERROR) for r in results.values()) else 1
+
+
+def cmd_watch(args) -> int:
+    interval = parse_interval(args.interval)
+    checks = core.discover_specs(args.spec)
+    title = f"verify-spec ({len(checks)} checks)"
+    prev: dict[str, str] = {}
+    print(f"watching {len(checks)} checks every {args.interval} — Ctrl-C to stop")
+    try:
+        while True:
+            results = {c["label"]: core.evaluate(c) for c in checks}
+            print_board(checks, results, _now(), verbose=args.verbose)
+            changed = core.state_changes(prev, results)
+            if changed:
+                core.notify(title, "; ".join(changed))
+            prev = {label: r["state"] for label, r in results.items()}
+            time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\nstopped.")
+        return 0
+
+
+def cmd_validate(args) -> int:
+    try:
+        checks = core.discover_specs(args.spec)
+    except core.SpecError as exc:
+        print(f"INVALID: {exc}", file=sys.stderr)
+        return 1
+    print(f"OK: {len(checks)} check(s) valid")
+    for c in checks:
+        print(f"  - {c['label']} ({c['source']}, {c['metric']} "
+              f"{c['op']} {core.num(c['value'])})")
+    return 0
+
+
+def cmd_schema(args) -> int:
+    print(core.SCHEMA_TEXT.strip())
+    return 0
+
+
+def cmd_setup(args) -> int:
+    print("Storing prod verification creds in the login Keychain.")
+    print("Leave a prompt blank to skip (keep the existing value).\n")
+    _maybe_store(core.KC_PG_DSN, "Prod readonly Postgres DSN "
+                 "(postgresql://user:pass@host:5432/db)")
+    _maybe_store(core.KC_DD_API_KEY, "Datadog API key")
+    _maybe_store(core.KC_DD_APP_KEY, "Datadog application key")
+    site = input(f"Datadog site [{core.DEFAULT_DD_SITE}]: ").strip()
+    if site:
+        core.keychain_set(core.KC_DD_SITE, site, binary=__file__)
+    print("\nDone. Try: verify-spec run <spec.toml>")
+    return 0
+
+
+def _maybe_store(service: str, prompt: str):
+    secret = getpass.getpass(f"{prompt}: ").strip()
+    if secret:
+        core.keychain_set(service, secret, binary=__file__)
+        print(f"  stored {service}")
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def parse_interval(text: str) -> int:
+    units = {"s": 1, "m": 60, "h": 3600}
+    text = text.strip()
+    if text and text[-1] in units:
+        return int(float(text[:-1]) * units[text[-1]])
+    return int(float(text))  # bare number = seconds
+
+
+# --------------------------------------------------------------------------- #
+# CLI                                                                          #
+# --------------------------------------------------------------------------- #
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="verify-spec",
+        description="Run a PR's prod verification checks on a watch loop.",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_run = sub.add_parser("run", help="run all checks once (PROD)")
+    p_run.add_argument("spec", nargs="?", help="spec file; default scans .scratch/verify/")
+    p_run.add_argument("-v", "--verbose", action="store_true",
+                       help="show the query + raw result for every check")
+    p_run.set_defaults(func=cmd_run)
+
+    p_watch = sub.add_parser("watch", help="rerun on an interval, notify on change (PROD)")
+    p_watch.add_argument("spec", nargs="?", help="spec file; default scans .scratch/verify/")
+    p_watch.add_argument("--interval", default="10m", help="e.g. 30s, 10m, 1h (default 10m)")
+    p_watch.add_argument("-v", "--verbose", action="store_true",
+                         help="show the query + raw result for every check")
+    p_watch.set_defaults(func=cmd_watch)
+
+    p_val = sub.add_parser("validate", help="lint a spec (no network)")
+    p_val.add_argument("spec", nargs="?", help="spec file; default scans .scratch/verify/")
+    p_val.set_defaults(func=cmd_validate)
+
+    p_schema = sub.add_parser("schema", help="print the spec schema (no network)")
+    p_schema.set_defaults(func=cmd_schema)
+
+    p_setup = sub.add_parser("setup", help="store prod creds in the Keychain")
+    p_setup.set_defaults(func=cmd_setup)
+
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        return args.func(args)
+    except core.SpecError as exc:
+        print(f"spec error: {exc}", file=sys.stderr)
+        return 2
+    except core.CredError as exc:
+        print(f"credential error: {exc}", file=sys.stderr)
+        return 3
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
