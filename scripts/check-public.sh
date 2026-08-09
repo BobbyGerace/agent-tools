@@ -58,9 +58,15 @@ hits=0
 # Documentation placeholders are not secrets.
 PLACEHOLDER='user:pass|USER:PASS|username:password|<[^>]+>:|:pass@|:password@|xxx|yyy|changeme|REDACTED|example\.com'
 
+# scan <label> <pattern> [allow-regex] [extra-grep-flags]
+#
+# The token patterns below are case-SENSITIVE on purpose — `AKIA` and `ghp_` are fixed-case by
+# specification, and matching them loosely would add noise for nothing. The denylist is the
+# opposite case: those are names, and a name reappearing as `Wonderly` rather than `wonderly` is
+# the same leak, so it passes -i.
 scan() {
-  local label="$1" pattern="$2" allow="${3:-}" out
-  out=$(printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 grep -nEI --color=never "$pattern" 2>/dev/null)
+  local label="$1" pattern="$2" allow="${3:-}" flags="${4:-}" out
+  out=$(printf '%s\n' "$FILES" | tr '\n' '\0' | xargs -0 grep -HnEI --color=never $flags "$pattern" 2>/dev/null)
   [ -n "$allow" ] && out=$(printf '%s\n' "$out" | grep -vE "$allow")
   out=$(printf '%s\n' "$out" | grep -v '^$')
   [ -z "$out" ] && return 0
@@ -94,7 +100,7 @@ PRIVATE_PATTERN=""
 [ -f "$PRIVATE_FILE" ] && PRIVATE_PATTERN=$(grep -vE '^[[:space:]]*(#|$)' "$PRIVATE_FILE" | paste -sd '|' -)
 
 if [ -n "$PRIVATE_PATTERN" ]; then
-  scan "previously-removed private names ($PRIVATE_FILE)" "$PRIVATE_PATTERN"
+  scan "previously-removed private names ($PRIVATE_FILE)" "$PRIVATE_PATTERN" "" "-i"
 elif [ "$REQUIRE_DENYLIST" -eq 1 ]; then
   # The hooks pass --require-denylist, so a missing or empty list fails instead of passing
   # quietly. A green run with this category silently switched off is the exact false confidence
