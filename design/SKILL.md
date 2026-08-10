@@ -26,8 +26,7 @@ Each round is a commit. That's how a round gets read:
 ```bash
 git -C ~/designs add <topic>.md
 git -C ~/designs commit -m "docs(<topic>): Round N — <what changed>" -- <topic>.md
-git -C ~/designs diff --stat HEAD~1 -- <topic>.md
-git -C ~/designs diff --word-diff=color HEAD~1 -- <topic>.md
+git -C ~/designs diff HEAD~1 -- <topic>.md
 ```
 
 **Name your own file in all four commands — never `add -A`, `add .`, or a bare `commit`.**
@@ -128,11 +127,11 @@ The format, with a made-up example — use your repo's real layers, paths, and t
 ```markdown
 **Persisted state** — `Data/Model/Scheduler/`
 
-| Type                         | What it is                                        | Touched?        |
-| ---------------------------- | ------------------------------------------------- | --------------- |
-| `SchedulerSnooze`            | the follow-up row; the only durable cadence state | **new columns** |
-| `SchedulerFollowUpSource`    | `Auto` = a cadence retry, `Human` = a promise     | read            |
-| `StaleLeadDigestWorkflow`    | the daily 72-hour digest, 8 files                 | **delete**      |
+| Type                      | What it is                                        | Touched?        |
+| ------------------------- | ------------------------------------------------- | --------------- |
+| `SchedulerSnooze`         | the follow-up row; the only durable cadence state | **new columns** |
+| `SchedulerFollowUpSource` | `Auto` = a cadence retry, `Human` = a promise     | read            |
+| `StaleLeadDigestWorkflow` | the daily 72-hour digest, 8 files                 | **delete**      |
 ```
 
 Use the layer headings that fit what you found — typically **persisted state**, **functional
