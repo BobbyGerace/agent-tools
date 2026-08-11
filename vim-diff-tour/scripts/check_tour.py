@@ -4,7 +4,7 @@
 Checks that every entry resolves to a real location and that the text fits on
 one quickfix line. Exits non-zero if anything is wrong.
 
-    python3 check_tour.py /tmp/diff-tour.json --root .
+    python3 check_tour.py /tmp/diff-tour-token-refresh.json --root .
 """
 
 import argparse

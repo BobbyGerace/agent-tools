@@ -14,9 +14,19 @@ A tour is not a summary of the diff and not a list of its changes. It is a readi
 1. **Read the whole diff first.** `git diff <range>`, `gh pr diff`, or whatever the user pointed at. Don't start selecting until you've seen all of it — selection depends on knowing what the change is *for*.
 2. **Say what the change does, in one sentence, to yourself.** Then pick the stops a reader needs in order to reconstruct that sentence themselves. If an entry doesn't contribute to that, it isn't a stop.
 3. **Order the stops** (see *Telling the story*).
-4. **Write the JSON** to `/tmp/diff-tour.json` (or a path the user gave).
+4. **Write the JSON** to a topic-scoped path (see *Naming the file*).
 5. **Verify it** with `scripts/check_tour.py`. Anchors that don't resolve turn the tour into a pile of `E486` errors, so don't skip this.
 6. **Deliver it** (see *Loading the tour*).
+
+## Naming the file
+
+Use `/tmp/diff-tour-<slug>.json`, where `<slug>` is a short kebab-case name for *this* change — the branch name, the PR number, or two or three words from the one-sentence summary you wrote in step 2. `/tmp/diff-tour-token-refresh.json`, `/tmp/diff-tour-pr-<number>.json`.
+
+A fixed filename silently clobbers the tour from whatever else the user is reading in another session — and the failure is invisible, because a stale-but-valid tour loads without complaint. The slug is what keeps two concurrent reviews apart, so it has to name the change, not the tool: `diff-tour-tour.json` or `diff-tour-review.json` collide as reliably as no slug at all.
+
+Overwriting your *own* earlier tour of the same change is fine and expected. `/tmp` is the right home — these are disposable.
+
+If the user gave a path, use theirs verbatim and don't add a slug.
 
 ## What earns a stop
 
@@ -139,7 +149,7 @@ Line numbers drift the moment the user rebases, stashes, or edits a file mid-tou
 ## Verifying
 
 ```bash
-python3 scripts/check_tour.py /tmp/diff-tour.json --root .
+python3 scripts/check_tour.py /tmp/diff-tour-token-refresh.json --root .
 ```
 
 It checks that every file exists, every pattern matches exactly once, every `lnum` is in range, and every `text` is within budget. Fix what it reports and re-run before handing the tour over. A pattern that matches twice is worth fixing even though Vim will accept it — it means the anchor isn't as distinctive as you thought, and it'll break as soon as the file grows.
@@ -149,15 +159,18 @@ It checks that every file exists, every pattern matches exactly once, every `lnu
 If `$NVIM` is set, you're running inside the user's Neovim and can load it directly:
 
 ```bash
+TOUR=/tmp/diff-tour-token-refresh.json
 nvim --server "$NVIM" --remote-expr \
-  "setqflist([], 'r', json_decode(join(readfile('/tmp/diff-tour.json'))))" >/dev/null
+  "setqflist([], 'r', json_decode(join(readfile('$TOUR'))))" >/dev/null
 nvim --server "$NVIM" --remote-send '<C-\><C-N>:copen<CR>'
 ```
 
 Otherwise print the line for the user to paste, and nothing else — no wrapper script, no instructions on how to use quickfix:
 
 ```vim
-:call setqflist([], 'r', json_decode(join(readfile('/tmp/diff-tour.json')))) | copen | cfirst
+:call setqflist([], 'r', json_decode(join(readfile('/tmp/diff-tour-token-refresh.json')))) | copen | cfirst
 ```
+
+Substitute the real path in both cases. A paste line still carrying a placeholder fails with `E484` in the user's editor, where fixing it is their problem rather than yours.
 
 Then, in chat, give a **two-or-three-sentence** orientation: what the change does and what the arc of the tour is. Do not restate the stops — they're in the list, and repeating them defeats the point of building it.
