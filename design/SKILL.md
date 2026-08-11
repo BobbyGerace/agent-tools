@@ -103,7 +103,7 @@ Six top-level headings. The DDD material is collapsed into one.
 
 ## Domain
 
-## Test plan # pre-merge: which of the four layers apply
+## Test plan # pre-merge: which of the six layers apply
 
                  # post-deploy: what signal proves it worked, and does it exist yet?
 
@@ -163,6 +163,9 @@ Rules, because this section fails in predictable ways:
   `sealed record`, an `abstract record` (a union), or a DI-injected service is exactly the
   information the table exists to carry, and it's the thing most easily got wrong from memory.
   `grep` the declaration.
+- **Name the nouns that don't have types yet.** Identifiers and quantities this change passes
+  around as bare `string` or `int` are nouns whose row is missing (`ddd` rule 9). Say which are
+  becoming opaque types and which stay primitive because they never leave the edge.
 
 Then any of these as `###` subsections, only when the change actually calls for them:
 
@@ -181,6 +184,12 @@ Then any of these as `###` subsections, only when the change actually calls for 
 
 ### Invariants # what must always be true, and what enforces it
 ```
+
+**`### State space` carries the transition table** when the change is a state machine. The
+variants and the legal transitions you would write anyway; four more get skipped and are the
+ones worth forcing: **the identity that makes each event idempotent**, behavior for
+**duplicate, stale, and out-of-order** arrival, which states are **terminal versus resumable**,
+and the **concurrency rule**. Those double as the layer-1 test rows.
 
 Rules that keep the optionality honest:
 
@@ -243,8 +252,10 @@ whether the work is one PR or two, and it is much cheaper to answer here than at
 column or a new endpoint is very often the exact signal that proves the feature worked. If you
 write one here, say so there.
 
-`## Test plan` says which of the four layers apply and sketches the layer-1 cases. For a
-state machine, the truth table is the deliverable.
+`## Test plan` says which of `ddd`'s six layers apply and sketches the layer-1 rows. For a
+state machine, the truth table is the deliverable — **and it is also the test budget**, so
+write the rows that matter rather than the state × event cross product. Name any invariant
+worth a property test here too — those are cheap and nobody thinks of them until after the bug.
 
 It also answers, in a line or two, **how this gets verified in prod after it deploys** — because
 that question has a code consequence and `ship` is too late to discover it. If proving the

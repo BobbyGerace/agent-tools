@@ -79,6 +79,8 @@ Two failure modes worth knowing, because they produce a local green and a red CI
 Before pushing, read the diff against `ddd/references/detectors.md`. Cheaper to fix a
 contradictory result type here than to argue about it in review.
 
+**Start with the types, not the logic** — `ddd`'s *Reviewing without reading every line*.
+
 Do **not** treat a clean automated domain review as evidence the rules were followed — see Step 6.
 
 ## Step 2: Commit

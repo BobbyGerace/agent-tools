@@ -98,8 +98,8 @@ concurrently before now.
 
 The skills assume a git repo, `gh`, and a CI config they can read; `implement` and `ship`
 discover build/lint/test commands from the repo rather than hard-coding them. `ddd` is written
-around C# records and pattern matching — the ten rules carry to any typed language, the examples
-don't. Nothing here is tied to a particular employer, codebase, or internal tool; where a
+around C# records and pattern matching — the twelve rules carry to any typed language, the
+examples don't. Nothing here is tied to a particular employer, codebase, or internal tool; where a
 practice depends on local setup, it says so instead of assuming.
 
 ## Contributing

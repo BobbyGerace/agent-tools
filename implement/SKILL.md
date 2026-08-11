@@ -11,7 +11,8 @@ packet first.
 
 Announce at start: "I'm using implement to build <subject>."
 
-Load `ddd` before writing C#.
+Load `ddd` before writing domain code — C# or TypeScript; rules 1, 9, and 10 apply to a
+frontend unchanged.
 
 ## Input
 
@@ -231,20 +232,30 @@ If discovery genuinely turns up nothing runnable, **ask** rather than inventing 
 ### What makes a test worth writing
 
 Each proposed test gets a one-line reason. That requirement exists to force articulating value
-instead of writing tests reflexively.
+instead of writing tests reflexively. If the reason is hard to write, that is the finding.
 
 - **High value** — guards an edge case that silently returns null and crashes downstream;
-  tests a business rule with several conditions; covers recursive logic that can truncate.
+  tests a business rule with several conditions; covers a failure or retry edge that
+  integration tests can't reach; states an invariant that must hold across all inputs.
 - **Low value** — `constructor sets properties` (the type system has it),
   `calls repository.save once` (asserts on a mock, breaks on any refactor),
-  `maps field A to field B`, `returns correct type`.
+  `maps field A to field B`, `returns correct type`, and **a hand-built DTO asserted field by
+  field** — that tests your own constructor, and proves nothing about model binding or the
+  payload the sender actually transmits.
 - **Mock external boundaries** (HTTP, DB, filesystem, third parties), not the unit's own
   collaborators. If `OrderService` calls `PriceCalculator`, test them together.
 
-The one exception to "don't assert on interactions" is `ddd`'s layer 2, where the sequencing
-_is_ the behavior under test. Everywhere else, assert on output or observable state.
+**Assert on output or observable state, not on interactions.** The narrow exception is a
+sequencing guarantee with no observable proxy — and before reaching for it, check whether a
+replay/interleaving test (`ddd` layer 5) asks the same question better, as behavior under an
+adverse ordering rather than as a mock call sequence.
 
-Prefer 1–3 high-value tests over a test per function.
+**For a state machine, the transition table is the test budget** — one test per row that
+matters, not one per cell of the state × event grid. See `ddd`'s rule 11.
+
+Prefer 1–3 high-value tests over a test per function. **And a test you can't attach a
+user-visible failure to leaves with your change** when you're already in that file — not a
+mandate to sweep the suite, just the ones in reach.
 
 ## Step 5: When something's wrong
 
@@ -286,9 +297,13 @@ Over- and under-building is the most common failure. Check both directions expli
 - Names say what things do, not how they work.
 - `ddd`'s **Code shape** section — single responsibility, method length as a smell, named
   helpers over inline blocks, and where to stop.
-- `ddd`'s ten rules, for anything with a state space, a result type, money, or time.
+- `ddd`'s twelve rules, for anything with a state space, a result type, money, or time.
+- `ddd`'s **Boundaries** rules (9–10) for anything crossing an edge: bare-string identifiers, a
+  row or provider payload used directly as the domain model.
+- **Read the types you changed as a set** — `ddd`'s *Reviewing without reading every line*.
 - No unused usings (CI treats IDE0005 as an error).
-- Tests assert behavior, not mock interactions.
+- Tests assert behavior, not mock interactions — and any test you can't attach a user-visible
+  failure to shouldn't be in the diff.
 
 ## Step 7: Report
 

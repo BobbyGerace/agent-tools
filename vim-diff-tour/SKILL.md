@@ -12,15 +12,16 @@ A tour is not a summary of the diff and not a list of its changes. It is a readi
 ## Workflow
 
 1. **Read the whole diff first.** `git diff <range>`, `gh pr diff`, or whatever the user pointed at. Don't start selecting until you've seen all of it — selection depends on knowing what the change is *for*.
-2. **Say what the change does, in one sentence, to yourself.** Then pick the stops a reader needs in order to reconstruct that sentence themselves. If an entry doesn't contribute to that, it isn't a stop.
-3. **Order the stops** (see *Telling the story*).
-4. **Write the JSON** to a topic-scoped path (see *Naming the file*).
-5. **Verify it** with `scripts/check_tour.py`. Anchors that don't resolve turn the tour into a pile of `E486` errors, so don't skip this.
-6. **Deliver it** (see *Loading the tour*).
+2. **List the types it adds or changes** (see *Types first*). This is the cheapest high-yield pass and it usually supplies the tour's opening chapter.
+3. **Say what the change does, in one sentence, to yourself.** Then pick the stops a reader needs in order to reconstruct that sentence themselves. If an entry doesn't contribute to that, it isn't a stop.
+4. **Order the stops** (see *Telling the story*).
+5. **Write the JSON** to a topic-scoped path (see *Naming the file*).
+6. **Verify it** with `scripts/check_tour.py`. Anchors that don't resolve turn the tour into a pile of `E486` errors, so don't skip this.
+7. **Deliver it** (see *Loading the tour*).
 
 ## Naming the file
 
-Use `/tmp/diff-tour-<slug>.json`, where `<slug>` is a short kebab-case name for *this* change — the branch name, the PR number, or two or three words from the one-sentence summary you wrote in step 2. `/tmp/diff-tour-token-refresh.json`, `/tmp/diff-tour-pr-<number>.json`.
+Use `/tmp/diff-tour-<slug>.json`, where `<slug>` is a short kebab-case name for *this* change — the branch name, the PR number, or two or three words from the one-sentence summary you wrote in step 3. `/tmp/diff-tour-token-refresh.json`, `/tmp/diff-tour-pr-<number>.json`.
 
 A fixed filename silently clobbers the tour from whatever else the user is reading in another session — and the failure is invisible, because a stale-but-valid tour loads without complaint. The slug is what keeps two concurrent reviews apart, so it has to name the change, not the tool: `diff-tour-tour.json` or `diff-tour-review.json` collide as reliably as no slug at all.
 
@@ -28,11 +29,24 @@ Overwriting your *own* earlier tour of the same change is fine and expected. `/t
 
 If the user gave a path, use theirs verbatim and don't add a slug.
 
+## Types first
+
+**The declarations come before everything else.** Before selecting anything, list the types the diff adds or changes — records, structs, unions, interfaces, enums, migrations, and the signatures whose parameters or return shape moved. That set is small even in a large diff, and it is where the highest-consequence decisions are visible.
+
+This is a claim about what review can be, not just about ordering: a type that permits an illegal combination is legible from its declaration alone, without opening a single method body — so the first chapter of a tour is the types, and the question to put in each `text` is **what this still permits**, not what it is.
+
+| Weak | Strong |
+| --- | --- |
+| New `OrderState` record | `OrderState`: paid+refunded still representable |
+| Added `tenantId` parameter | 3rd `string` id in the signature — transposable |
+
+When the change touches no types at all, say so in the orientation and open with mechanism instead. That's a real finding, not an absence of one.
+
 ## What earns a stop
 
 Prioritize changes where the *consequences* are larger than the diff, or where the intent isn't legible from the code alone:
 
-- **Shape of the data** — schema and migrations, data models, serialization and wire formats, anything persisted.
+- **Shape of the data** — schema and migrations, data models, serialization and wire formats, anything persisted. Covered by *Types first* above; it stays on this list because a migration without a matching type change is its own signal.
 - **Public surface** — endpoints and route handlers, exported APIs, CLI flags, config keys, env vars, feature flags. Anything a caller outside the diff can observe.
 - **Load-bearing logic** — concurrency, locking, transactions, retries, ordering guarantees, cache invalidation, state machines, invariants. The parts where being subtly wrong is quiet rather than loud.
 - **Security and authz boundaries** — anything touching who is allowed to do what.
@@ -58,7 +72,7 @@ Order by **dependency of comprehension**: each stop should be understandable giv
 
 The default arc, which fits most changes:
 
-1. **Premise** — the change everything else follows from. Usually the data shape, a new type, a config switch, or a new dependency. What the reader has to hold in their head for the rest to parse.
+1. **Premise** — the types. The change everything else follows from: the data shape, the new union, the signature whose parameters moved, a config switch, a new dependency. What the reader has to hold in their head for the rest to parse, and the stage where *what does this still permit* is the question at every stop.
 2. **Mechanism** — the core logic that implements the premise. The trickiest, most load-bearing hunks go here.
 3. **Surface** — how the change becomes visible from outside: endpoints, exported functions, flags, output formats.
 4. **Consequences** — migrations, backfills, call sites whose behavior actually changed, removed code paths.
