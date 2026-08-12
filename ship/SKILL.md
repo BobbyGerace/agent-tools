@@ -161,6 +161,14 @@ For backend changes that's usually a Datadog logs query (the actual query string
 healthy result looks like) and/or SQL (the actual statement and the expected row shape).
 Include the threshold that distinguishes working from broken.
 
+**Bound every SQL query on a column that is actually indexed.** A check re-runs on the backoff
+ladder for as long as the spec is open, so an unbounded query is a full table scan every tick and
+will time out rather than return anything — and a check that times out is unverified, not
+failing. Confirm the index exists rather than assuming it: the migrations and entity
+configuration are in the repo, so this is checkable before you ship. The semantically obvious
+column is often the unindexed one, and if you substitute an indexed column for it, make sure the
+substitute can't exclude rows the original would have kept.
+
 **Say which store each query targets** — logs, browser RUM, or SQL — because the spec has to
 route it and they fail silently when swapped. Log evidence is a message string or
 `@SourceContext`. `source` is the first element of a check's address — see below. **APM spans are

@@ -311,7 +311,8 @@ a restructure.
 
 ## Then what
 
-When there are no open questions and `## Tasks` is written:
+When there are no open questions, do one more pass over the full document
+to check for inconsistencies and fix what you find. Then write `## Tasks` and output:
 
 ```
 Design settled. Start a new session (or /clear) and run
