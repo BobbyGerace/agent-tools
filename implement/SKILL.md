@@ -106,6 +106,13 @@ actually proves the feature works:
 unverified, and saying otherwise is the thing not to do. But the reverse is also true: running
 the feature is not a substitute for the required checks below. Both, always — and both once.
 
+**Neither is a test whose fixtures you wrote by reading source.** A provider's code gives you its
+shape, never that your request works or that real rows look like your fixture. So where the design
+says to call the thing — a live request, a captured payload, a query against real data — call it.
+If you can't reach it, **stop and ask them to run it**; shipping the inference instead needs their
+sign-off out loud, not a line in the deviation list. And if the change renders something, look at
+it rendered.
+
 ### Required checks — once, after the last chunk
 
 When the work is done, these must pass:
@@ -340,6 +347,9 @@ or `None — built as designed.`
 
 Uncommitted, ready for review. `ship` when you want the PR.
 ```
+
+**"Manual checks" is for what only a human can confirm** — a judgment call, a production
+permission, an aesthetic. It is not a parking spot for verification you could have done yourself.
 
 ### Deviations
 

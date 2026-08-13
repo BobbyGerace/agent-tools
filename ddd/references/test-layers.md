@@ -211,6 +211,12 @@ shape the provider actually sends.** Newing up a request object in a test and as
 fields is a test of your own constructor. This is the single most common shape of test that
 generates confidence and catches nothing.
 
+**So a fixture names where it came from, or this isn't the layer it claims to be.** Put the
+command that produced it in a comment beside it. If there is no such command — you assembled it
+from the provider's source, or from memory — say so, and call it what it is: a shape test, at
+layer 1. A fixture built that way can carry an id prefix that doesn't exist and still pass every
+gate.
+
 What belongs here:
 
 - **Actual field names and optionality** from a captured payload, bound through the real

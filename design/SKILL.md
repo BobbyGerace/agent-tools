@@ -73,6 +73,15 @@ paragraph appears mid-section with nothing explaining why it's there, and the do
 a series of non-sequiturs. If a paragraph would confuse someone who never saw the question,
 it needs the pointer.
 
+**Prune as you fold.** `## Resolved` is the only place history belongs; everything above it is the
+spec someone builds from. So each round leaves the body reading as though the design had been
+right the first time — a claim a later round disproved is **deleted, not struck through**, a
+paragraph that only made sense against a superseded mechanism goes with it, and a number that
+turned out to measure the wrong thing is removed rather than annotated. This applies to your own
+findings, not just to their annotations: most of what goes stale is research from an earlier round
+that a later one overtook. Nothing is lost by deleting it, because the thread that produced it is
+preserved below — and the round's diff is where they watch it go.
+
 `Resolved` is append-only and lives at the bottom, so it never shows up in a round's diff
 except as new lines at the end. IDs never renumber. By round 6 it will be the longest section
 in the doc; that's fine, it's the part worth having in three months.
@@ -90,7 +99,41 @@ matter how good the tooling is. After round 1:
 - If the doc genuinely needs reorganizing, **ask first**, and do it as its own round with
   nothing else in it — one commit whose diff is honestly unreadable, and everyone knows which.
 
+**Pruning is not restructuring.** What this rule forbids is *moving* text. Deleting a claim a
+later round disproved is the most legible diff there is, and it is required — see *Prune as you
+fold*.
+
 No `~vN` markers on touched headings. They churn every round and `--stat` already answers it.
+
+## Starting over: a v2
+
+Pruning keeps the body true. It cannot fix a doc whose *shape* is wrong, and after several
+changes of direction that is what you have: sections ordered by the sequence the questions
+arrived in rather than what a reader needs, a subsection per round, back-references to threads,
+and vocabulary chosen under a mechanism that has since been replaced. **A frame survives pruning**,
+because every sentence inside it is accurate. That is how a clause that reads as housekeeping
+under the old model ships as an instruction under the new one — which it has.
+
+A v2 is a clean slate — not a revision of the old doc, a new one written from what is known now,
+in the shape of a round 1.
+
+- **A new file**, `~/designs/<topic>-v2.md`. The old doc is left exactly as it is: it is the
+  record of how the design got here and worth keeping. Put one line at the top of it pointing at
+  the v2, so nobody builds from the wrong file.
+- **The decisions carry over; the deliberation does not.** Every settled fact is stated plainly
+  as a fact — no strikethroughs, no "corrected in round 5", no quoted thread that produced it.
+  `## Resolved` starts empty, because everything it would hold is in v1.
+- **Write it from the premises that turned out to be true.** The whole point is that round 1 gets
+  written a second time with the right assumptions, so the doc no longer argues its way toward
+  them.
+- **Fewer open questions than a real round 1**, often none. A v2 is not deliberately incomplete
+  the way a first draft is.
+- **A round 1's length.** If the rewrite lands anywhere near the length of the doc it replaces,
+  it was copied rather than rewritten.
+
+When a design needs this is a judgment, and it stays one — many rounds, direction changed more
+than once, too much the reader has to hold in their head to keep from tripping over something
+that used to be true. **The user calls for it; you don't need to offer it.**
 
 ## The template
 
@@ -298,7 +341,7 @@ by the time it runs. This section decides **what must be observable**, not how i
 
 ## Length
 
-**80–150 lines for a normal feature. Over 250 needs a reason.**
+**250 lines at the outside for a normal feature, and far less for a small modification.**
 
 The template is not what makes a doc long; verbosity is, and it's the failure mode this
 section exists to check. A one-union bug fix should produce a page, not a chapter. If a
@@ -328,8 +371,14 @@ a restructure.
   archiving — verbatim, so the record is their words and not your summary of them.
 - **Don't build.** This skill produces a document. "Let's do X" inside a design round means
   the decision goes into the doc, not into the codebase.
-- **Open the code before describing it.** Anything asserted about existing behavior gets read
-  first; mark anything inferred.
+- **Read the code, then check the data.** Reading tells you what the code does. It does not tell
+  you what the rows look like, whether a filter works, or what an endpoint returns — so anything
+  the design leans on gets looked at: count what fraction of rows carry the field you plan to
+  join on, call the endpoint once, read a real payload. A claim taken from source alone is
+  inferred, and says so where it appears.
+- **No access is a reason to ask, not to infer.** Hand over the query or the curl for them to
+  run. A premise nobody could check stays an open question or carries their explicit sign-off —
+  never a sentence that reads like a finding.
 
 ## Then what
 

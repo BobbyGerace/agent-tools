@@ -181,6 +181,10 @@ service can carry a correct-looking name in its own source and export nowhere yo
 service and store are part of the address, not something the diff can establish. Control them
 (below) rather than reading them off the code.
 
+**"There is no signal" is an address claim too**, and it holds only after trying a path other than
+the one that failed. Declaring one dead on a single attempt stops the measuring — the same outcome
+as having no signal, reached without the evidence.
+
 **Request liveness and request errors may not live in the same store.** An app can log errors with
 request scope while emitting no per-request event at all, in which case a path or route facet with
 no other predicate matches only incidental logs that happen to fire during a request — a `> 0`
