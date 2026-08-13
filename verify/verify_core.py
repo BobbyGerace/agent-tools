@@ -816,18 +816,29 @@ metric  = "value"   # "value" = first scalar cell (postgres) / event count
                     # (datadog); "rows" = number of returned rows (postgres)
 op      = "eq"      # eq | ne | lt | lte | gt | gte
 value   = 0         # required numeric threshold: assert  metric <op> value
-level   = "alert"   # "alert" (default) = failing proves something is broken -> red
-                    # "warn" = failing might be nothing -> yellow
+level   = "alert"   # "alert" (default) = something bad was OBSERVED -> red
+                    # "warn" = nothing was observed, which may mean nothing -> yellow
 healthy = "zero orphaned rows means the backfill ran"   # optional note
 
-Choosing `level`: absolute invariants are `alert` — a non-zero orphan count, a
-digest that didn't build, an enum that won't resolve. Those failing IS the proof.
-Volume and rate heuristics are `warn` — "the poll is still serving", "contacts
-are still being captured", "no error spike". Those fail on a quiet Sunday without
-anything being wrong, and a red that turns out to be nothing is how you stop
-trusting the board. Default is `alert` on purpose: a false red is self-correcting
-(you look, it's fine, you downgrade the check), a false yellow is the regression
-you skimmed past.
+Choosing `level` — one absolute rule: **red is only for a positive failure.
+Absence of evidence is always `warn`.** The test that settles it: ask what the
+check does the instant the PR deploys, before anything has had a chance to happen.
+If it fails then, it is `warn`.
+
+The op usually decides it outright. `eq 0` / `lt <n>` on an error or orphan count
+is `alert` — failing means the query FOUND something, which is proof, and zero
+passes so it cannot fire early. `gt 0` / `gte <volume>` is `warn` — failing means
+it found NOTHING, which at deploy time is expected, and on a low-traffic feature
+stays true for days with everything working. "A row that should exist and doesn't"
+is absence of evidence too, not an invariant.
+
+So a new feature's "did it fire" check is `warn` even though it is the one you
+care most about. A red on this board must mean "stop and look", never "it hasn't
+fired yet" — that is what keeps the board worth reading. Promote a `gt 0` check to
+`alert` only after you have watched it read non-zero.
+
+The code default is still `alert` for back-compatibility with specs written before
+this rule, so set `level` explicitly on every check rather than relying on it.
 
 [[checks]]
 name    = "no call_failed spike"

@@ -70,6 +70,13 @@ Chunk 3 complete. Board now archives on `a`. Moving to chunk 4...
 
 Have a rough chunk breakdown up front; adjusting it as you go is fine and expected.
 
+**Print the test table with it.** Same three-column format the design doc uses — layer, case,
+expected, one row per test, count on the last line — before any test is written. The user strikes
+the rows they don't want; what survives is the budget. If the design already has the table, print
+that one and note what you'd change rather than inventing a second. This is the whole
+intervention: a test list is only a budget if someone can see the number and argue with it, and
+after the tests exist nobody re-litigates them.
+
 ## Step 3: Before changing any signature
 
 Find **all** callers — not just one level up. Integration test projects instantiate services
@@ -231,8 +238,13 @@ If discovery genuinely turns up nothing runnable, **ask** rather than inventing 
 
 ### What makes a test worth writing
 
-Each proposed test gets a one-line reason. That requirement exists to force articulating value
-instead of writing tests reflexively. If the reason is hard to write, that is the finding.
+Each proposed test gets a one-line reason — the `Expected` clause of its row in the table, not a
+second paragraph beside it. That requirement exists to force articulating value instead of writing
+tests reflexively. If the reason is hard to write, that is the finding.
+
+**Which layers a change touches is a claim about its risk**, so the count is a finding as much as
+a plan: an ordinary change is one to three tests across one or two layers, and the budget belongs
+at the boundary rather than in a third pure case. See `ddd`'s *Eligibility, not obligation*.
 
 - **High value** — guards an edge case that silently returns null and crashes downstream;
   tests a business rule with several conditions; covers a failure or retry edge that

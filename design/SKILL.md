@@ -191,6 +191,13 @@ ones worth forcing: **the identity that makes each event idempotent**, behavior 
 **duplicate, stale, and out-of-order** arrival, which states are **terminal versus resumable**,
 and the **concurrency rule**. Those double as the layer-1 test rows.
 
+**Mark the rows that get a test with a `T` column.** The table has two jobs — it documents the
+machine's legal transitions *and* it is the layer-1 test budget — and they don't have the same
+row set. A transition worth naming isn't automatically a transition worth asserting, so without
+the column the reader can't cut a test without deleting documentation, and every transition
+added to the spec silently buys a test. The marked count is what `## Test plan` cites, and the
+marks are where the argument about the count happens.
+
 Rules that keep the optionality honest:
 
 - **A subsection appears when it has content, and is omitted otherwise** — never included
@@ -252,10 +259,25 @@ whether the work is one PR or two, and it is much cheaper to answer here than at
 column or a new endpoint is very often the exact signal that proves the feature worked. If you
 write one here, say so there.
 
-`## Test plan` says which of `ddd`'s six layers apply and sketches the layer-1 rows. For a
-state machine, the truth table is the deliverable — **and it is also the test budget**, so
-write the rows that matter rather than the state × event cross product. Name any invariant
-worth a property test here too — those are cheap and nobody thinks of them until after the bug.
+### Test plan
+
+**A table, one row per test, one line per row, and no prose.** This section is approved by being
+skimmed — the user strikes the rows they don't want — and prose defeats that in a specific way: it
+hides the count, which is the thing worth arguing about. Thirty lines of justified paragraphs make
+nine proposed tests look like a description of care rather than a number someone should push back
+on.
+
+```markdown
+| L   | Case                                    | Expected                         |
+| --- | --------------------------------------- | -------------------------------- |
+| 1   | transition table above, 5 of 9 marked   | —                                |
+| 2   | blank key on either side                | never matches                    |
+| 4   | captured payload, contact with no email | href as the consumer receives it |
+| 4   | 401 body                                | unlinkable, distinct copy        |
+
+3, 5, 6 — none: no persistence, no durable state, no ordering.
+Rewrite: the existing owner-button test. 8 tests.
+```
 
 It also answers, in a line or two, **how this gets verified in prod after it deploys** — because
 that question has a code consequence and `ship` is too late to discover it. If proving the

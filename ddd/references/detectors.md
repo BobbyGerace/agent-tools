@@ -29,8 +29,8 @@ reason. Every caller has to know which combinations are real, and no two callers
 public abstract record DispatchOutcome
 {
     public sealed record Delivered(DispatchReceipt Receipt) : DispatchOutcome;
-    public sealed record RetryableFailure(Error Error, DispatchReceipt? Partial) : DispatchOutcome;
-    public sealed record PermanentFailure(string Reason, DispatchReceipt? Partial) : DispatchOutcome;
+    public sealed record RetryableFailure(TransientFault Fault, DispatchReceipt? Partial) : DispatchOutcome;
+    public sealed record PermanentFailure(PermanentFault Fault, DispatchReceipt? Partial) : DispatchOutcome;
 }
 ```
 
@@ -53,6 +53,45 @@ payload fields. Also `(Value, Errors)` and `(Value?, Commands, Errors)` pairs �
 
 The last one is the one usually missing, and it is the one that needs the most from the type:
 the failed effect has to stay **identifiable and reconcilable**, not merely reported.
+
+### The failure side is a union too
+
+The categories above are only enforceable if the caller can *dispatch* on them, and it can't
+when the failure channel is a general-purpose error type carrying a string code. `ErrorOr<T>`,
+`Either<Error, T>`, and any `Result` over a shared error record all default to this shape:
+
+```csharp
+ErrorOr<Shipment> BookAsync(...);
+
+if (result.FirstError.Code == "Shipment.CarrierUnavailable")   // string comparison
+```
+
+The success side is typed and the failure side is a description. Adding a nominal error type
+without closing the set doesn't fix it either — a single `ValidationError(string Code, ...)`
+is the same string comparison with a longer name.
+
+**Instead** — one closed union per workflow, and the transport code produced at the edge:
+
+```csharp
+public abstract record BookingFailure
+{
+    private BookingFailure() { }
+
+    public sealed record AddressMissing : BookingFailure;
+    public sealed record CarrierUnavailable(CarrierId Carrier) : BookingFailure;
+    public sealed record AssigneeIneligible(UserId Assignee) : BookingFailure;
+}
+
+Task<Result<Shipment, BookingFailure>> BookAsync(...);
+```
+
+The mapper at the HTTP/gRPC boundary turns each case into a stable wire code, which keeps the
+external contract intact while internal callers get exhaustive handling. That mapper is also the
+one place a new case forces a decision, instead of falling into a default branch.
+
+**How to spot it:** a test asserting on an error code string; a `switch` or `if` on an error
+code anywhere but a mapper; a `Result` whose error parameter is the same type for every operation
+in the service.
 
 ---
 
@@ -362,7 +401,8 @@ public sealed record ShipmentId
     public string Value { get; }
     private ShipmentId(string value) => Value = value;
 
-    public static ErrorOr<ShipmentId> Parse(string value) => /* canonical form */;
+    public static Result<ShipmentId, MalformedShipmentId> Parse(string value) =>
+        /* canonical form */;
 }
 ```
 
@@ -398,12 +438,13 @@ public abstract record DocumentBody
     public sealed record Contract(ContractMetadata Metadata) : DocumentBody;
 }
 
-public static ErrorOr<DocumentBody> ToDomain(DocumentRow row) => (row.Type, row.Metadata) switch
-{
-    (DocumentType.Invoice, InvoiceMetadata m)   => new DocumentBody.Invoice(m),
-    (DocumentType.Contract, ContractMetadata m) => new DocumentBody.Contract(m),
-    _ => Error.Unexpected(code: "Document.InconsistentBody"),
-};
+public static Result<DocumentBody, InconsistentBody> ToDomain(DocumentRow row) =>
+    (row.Type, row.Metadata) switch
+    {
+        (DocumentType.Invoice, InvoiceMetadata m)   => new DocumentBody.Invoice(m),
+        (DocumentType.Contract, ContractMetadata m) => new DocumentBody.Contract(m),
+        _ => new InconsistentBody(row.Type, row.Metadata.GetType()),
+    };
 ```
 
 Legacy corruption stays detectable; new invalid combinations stop being a service's problem.

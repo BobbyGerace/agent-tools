@@ -24,6 +24,26 @@ drift independently, and neither a pure test nor an end-to-end test notices.
 **This is not a stack.** Layer 2 is as pure as layer 1; layer 4 is orthogonal to integration
 depth entirely. Read it as a checklist of kinds, not a pyramid to fill from the bottom.
 
+## Eligibility, not obligation
+
+**The layers say which kinds of test are eligible for a change. The change says how many are
+real.** Every list below is a menu, and reading one as a set of checkboxes is how a suite ends up
+large and beside the point.
+
+An ordinary change lands **one to three tests across one or two layers.** Five layers and twenty
+tests describes a workflow seam — a lifecycle, a cadence engine, a provider integration — and if
+that isn't what you're changing, the count is the finding rather than the plan. How many layers a
+change touches is a claim about its risk, so make it deliberately: filling all six for a
+link-target fix means noticing that you filled all six.
+
+**Spend the budget at the boundary.** Layers 1 and 2 are the cheap ones — no fixtures, no
+database, no captured payload — which is exactly why over-testing collects there, as a third pure
+case that restates the second. The defects that actually reach production are in layers 3, 4, and
+5: a value that didn't survive the column, a payload field that wasn't what you assembled by
+hand, a second delivery. So the trade is not "more tests" or "fewer tests" — it's **the count
+down and the fidelity up**, because one round-trip fixture replaces several hand-built assertions
+and is the only kind that could have failed.
+
 ## Group 1 — Pure
 
 No database, HTTP server, provider SDK, message bus, UI framework, or logger mocks. Records in,
@@ -104,7 +124,7 @@ integration tests, which is exactly why they ship broken:
 public void WarningDispatch_WhenAcceptedDownstreamButPublishFailed_CommitsAuditAndRetries()
 {
     var outcome = new DispatchOutcome.RetryableFailure(
-        Error.Failure("Notification.PublishFailed", "Bus unavailable."),
+        new TransientFault.BusUnavailable(),
         new DispatchReceipt(MessageId: "1712345678.123456",
                             NotificationSentAt: null, WarningCopyNumber: null)
     );
@@ -145,8 +165,10 @@ assertion is universally quantified.
 
 ## Group 2 — Boundary fidelity
 
-Both layers here exist for the same reason: a shape you control and a shape you don't have
-drifted, and no amount of pure testing can see it.
+Both layers here exist for the same reason: a representation you control and one you don't have
+drifted, and no amount of pure testing can see it. Drift is in the **shape** — a field name, an
+optionality, a discriminator — or in the **values that survive a round trip**, which is the half
+usually missed.
 
 ### Layer 3 — persistence mapping
 
@@ -156,6 +178,15 @@ be turned into SQL gets caught.
 
 - **Every domain variant round-trips.** With a union persisted over existing columns, this is
   the test that makes the whole compatibility-projection approach safe.
+- **Values round-trip, not just shapes.** A fixture built from round numbers — whole seconds,
+  whole dollars, midnight — never sees the column truncate, so the mapping assertion passes and
+  production loses the remainder. Write an awkward value, read it back, compare: sub-second
+  precision, numeric scale, and anything whose meaning lives in a flag the column doesn't store
+  (a `DateTime` whose `Kind` is decided by whoever constructed it) are where this fails.
+- **A table another system owns is a provider contract, not your schema.** When a second service
+  or ORM writes the same rows, its conventions are external — and a fixture seeded through *your*
+  ORM proves only that your ORM round-trips its own output. Seed the way the owner does, or
+  capture a real row; then read it back through your mapping.
 - **Legacy field combinations map deterministically.** Every combination of the old nullable
   flags produces exactly one variant, including the combinations that shouldn't exist. If one
   of them has no sensible mapping, assert that it is *detected*, not that it silently picks a
@@ -204,7 +235,8 @@ that API.
 Durable state under duplicates, races, and failure part-way through. The concerns usually
 chased with mock call sequences belong here instead, asked as behavior.
 
-The minimum set:
+The orderings worth a test — and for a change with no durable state and nothing delivered twice,
+that is none of them:
 
 - the same callback or message **delivered twice concurrently**
 - processing **cancelled after each durable step** — one test per step, walking the cut point

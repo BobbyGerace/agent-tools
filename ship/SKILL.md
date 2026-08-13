@@ -306,19 +306,36 @@ Always include it, and `repo` too whenever the spec store covers more than one r
 One `[[checks]]` entry per M&V check. It mirrors the inline queries; it never replaces them.
 
 **Set `level` on every check.** It decides whether a failure shows red or yellow on the board, and
-getting it wrong is what makes a board stop being trusted:
+getting it wrong is what makes a board stop being trusted. There is one rule, and it is absolute:
 
-- `level = "alert"` (the default) — **failing is proof.** Absolute invariants: a non-zero orphan
-  count, a digest that didn't build, an enum that won't resolve, a row that should exist and
-  doesn't.
-- `level = "warn"` — **failing might be nothing.** Volume and rate heuristics: "the poll is still
-  serving", "contacts are still being captured", "no error spike". These fail on a quiet Sunday
-  with nothing broken.
+> **Red is only ever for a positive failure — something bad was observed. Absence of evidence is
+> always `warn`, never `alert`.**
 
-The M&V split maps onto this almost exactly. Question 1 — _does the new thing work_ — is usually
-`alert`, because you're asserting a specific new behavior happened. Question 2 — _did we break the
-happy path_ — is usually `warn`, because it's a volume comparison against normal traffic and
-normal traffic varies. Say which you chose when the answer isn't obvious.
+The mechanical test, and it settles nearly every case: **ask what the check does the instant the
+PR deploys, before anything has had a chance to happen.** If it fails then, it is `warn`. No
+exceptions, including checks you are confident about.
+
+The op usually tells you outright:
+
+- `eq 0`, `lt <n>` on an error or orphan count → **`alert`**. Failing means the query *found*
+  something: orphaned rows exist, the fault rate is above the ceiling, errors are spiking. That is
+  proof, and it cannot fire before the feature runs — zero passes.
+- `gt 0`, `gte <volume>` → **`warn`**. Failing means the query found *nothing*, which at deploy
+  time is exactly what you expect and tells you nothing. Every `gt 0` check on new behavior is red
+  the moment it ships, and on a low-traffic feature it can stay red for days with everything
+  working perfectly.
+
+So the M&V split maps onto this the opposite way round from how it reads: Question 1 — _does the
+new thing work_ — is a `gt 0` check and therefore **`warn`**, even though it's the check you care
+most about. Question 2 — _did we break the happy path_ — is a volume floor and therefore `warn`
+too. Most specs are mostly yellow-capable, and that is correct: a red on this board should mean
+"stop and look", not "the feature hasn't fired yet".
+
+"A row that should exist and doesn't" is absence of evidence, not an invariant. It is `warn`.
+
+Once you have watched a `gt 0` check read non-zero, promoting it to `alert` is fair — at that
+point a return to zero is a real regression rather than a cold start. That is a follow-up edit
+after an observation, not something to ship on day one.
 
 **Never run `verify-spec run` or `verify-spec watch`, or `verify-board`.** Those hit prod and
 are the user's to run.

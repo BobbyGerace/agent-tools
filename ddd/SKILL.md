@@ -65,6 +65,13 @@ retrying, and a partial success whose failed half still needs reconciling. Colla
 one generic failure branch and every caller re-derives which is which, differently.
 `detectors.md` #1 lists the eight categories worth keeping apart.
 
+**The failure side is a union too, not a code.** A result whose success side is typed and whose
+failure side is a general-purpose error carrying a string `Code` is half-modeled: the caller
+gets no exhaustiveness, so it compares strings to recover what the callee already knew. That is
+rule 9 applied to errors — a stable wire code is a *transport* representation, produced by the
+HTTP/gRPC mapper at the edge from a closed domain union, never the thing internal callers branch
+on. The tell is a `switch` or an assertion on an error code outside a mapper.
+
 **3. One representation per concept.** `null` and `""` must not both mean "no relation".
 Normalize at the mapper boundary or wrap it. _Automated reviewers often catch this one — so
 don't spend design effort here, but don't rely on it either (see `ship`)._
