@@ -137,12 +137,14 @@ that used to be true. **The user calls for it; you don't need to offer it.**
 
 ## The template
 
-Six top-level headings. The DDD material is collapsed into one.
+Seven top-level headings. The DDD material is collapsed into one.
 
 ```markdown
 # <Feature> Design
 
 ## Problem
+
+## Approach
 
 ## Domain
 
@@ -156,6 +158,16 @@ Six top-level headings. The DDD material is collapsed into one.
 
 ## Resolved
 ```
+
+### Approach
+
+The shape of the change in two or three paragraphs: which existing mechanism it extends or
+replaces, what moves, what stays. It exists so `## Domain` has an antecedent — a reader who meets
+the noun list first has no way to tell why a type is marked touched, because nothing has yet
+proposed doing anything to it.
+
+It holds the reasoning the whole design rests on, stated once, so the `Q` blocks below don't each
+restate it. It resolves nothing: every fork it names has a live `Q`.
 
 `## Domain` always carries **the noun list**. That part is cheap and always pays — but only if
 it's written as a reference table, not a run-on of backticked names.
@@ -354,7 +366,8 @@ A `Q` block that just asks "what do you think?" wastes a round. Each one needs:
 - the decision to be made,
 - the options, concretely,
 - a recommendation,
-- why that recommendation follows from the research.
+- why that recommendation follows — only the part specific to this fork, since the reasoning the
+  design rests on is already in `## Approach`.
 
 Ask only what research can't answer and what materially changes the design. If two readings
 of the request lead to the same work, pick one and note the assumption instead of asking.
