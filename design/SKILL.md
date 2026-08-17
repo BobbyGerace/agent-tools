@@ -49,15 +49,33 @@ and is useless on prose.
 2. **The user annotates** with lines starting `@:` (leading whitespace is fine — their formatter
    indents them). Grep for them with `^\s*@:`.
 3. **Fold each annotation in**, per the archive rules below.
-4. **Format, then commit the round and print both diff commands.** Run
+4. **Format, then commit the round and hand it over.** Run
    `prettier --write <topic>.md` first when `prettier` is on the PATH — it realigns the tables so
    a sub-rowed noun list stays readable. It can't churn the doc: prettier's default
    `proseWrap: preserve` leaves your prose line breaks alone, and running it over an existing
-   design doc produced a zero-line diff. Skip it silently if prettier isn't installed. The diff
-   is the deliverable; they read that, not the doc.
+   design doc produced a zero-line diff. Skip it silently if prettier isn't installed. Print a
+   `Material changes this round` list, then both diff commands. The diff is the deliverable; they
+   read that, not the doc.
 5. **Repeat** until no `Q` blocks are open.
 6. **Append a `## Tasks` section** — concrete, ordered, each one a chunk. This is the handoff
    to `implement`, and it's what lets that skill start from a clean context.
+
+### Material changes
+
+A later answer can expose work that was not in the question it answered. Do not silently settle
+that consequence. Add a new `Q` block when a round introduces or reverses any of these without the
+user already approving it:
+
+- durable storage or a migration,
+- an endpoint, message, or breaking contract change,
+- an external effect,
+- a rollout phase or compatibility mechanism,
+- a materially different consistency, retry, or ownership model.
+
+At handoff, list every newly introduced item from those categories under `Material changes this
+round`; write `None` when there are none. Name the mechanism, not only its purpose: “add a durable
+dispatch table and migration,” not “make retries safe.” This callout directs review; it does not
+replace the scoped diff or the full specification in `## Domain`.
 
 ### Handling annotations
 
@@ -200,8 +218,9 @@ Rules, because this section fails in predictable ways:
   field list or two sentences, markdown pads every other cell to match and the table stops being
   readable at all. A real design doc reached **351 characters** on a line this way.
 - **No lists in cells.** If a noun's fields, columns, or enum members matter, they belong in
-  `### Contract changes` (for tables and endpoints) or `### Proposed types` (for internal types) —
-  not here. Here it gets a phrase: "the follow-up row; the only durable cadence state".
+  `### Persistence changes` (for tables), `### API contract changes` (for endpoints and messages),
+  or `### Proposed types` (for internal types) — not here. Here it gets a phrase: “the follow-up
+  row; the only durable cadence state”.
 - **No prose in cells either.** One clause, lowercase, no trailing period. If you need a
   sentence, the noun needs its own subsection. If you need two, you're writing the wrong section.
 - **Never a prose run of names separated by `·` or commas.** A reader can't scan it, can't tell
@@ -225,7 +244,9 @@ Rules, because this section fails in predictable ways:
 Then any of these as `###` subsections, only when the change actually calls for them:
 
 ```markdown
-### Contract changes # new/changed DB tables and endpoints — see below
+### Persistence changes # new/changed DB tables — see below
+
+### API contract changes # new/changed endpoints and messages — see below
 
 ### State space # states today; illegal combinations currently expressible
 
@@ -265,11 +286,11 @@ Depth scales with how much is being written from scratch. Greenfield fills most 
 subsections. A small modification to existing code may have nothing but the noun list and a
 test plan — see `ddd`'s scope rule.
 
-### Contract changes
+### Persistence changes
 
-The noun list is an index; this is the spec. It covers **new or changed database tables and API
-surface only** — endpoints, gRPC routes, pubsub messages. Internal types don't belong here; they
-get their one-line row in the noun list and, if they need shape, `### Proposed types`.
+The noun list is an index; this is the persistence spec. Every new or changed database table gets
+this subsection even when persistence was discovered in a later round or exists only to support
+an endpoint. A noun-list row is never enough to introduce durable state.
 
 Only what moves. An unchanged table gets its one-liner upstairs and nothing more, and a table
 you're altering shows the columns you're adding or changing — not its existing 30. No DDL:
@@ -304,15 +325,19 @@ A compound index, a composite primary key, a multi-column unique, a partial uniq
 - **Defaults go in `Meaning`**, not their own column — only a few columns have one, so a
   dedicated column would be mostly empty.
 
-For an endpoint, route, or message: request and response fields in the table, and below it the
-things that aren't per-field — the auth lane, the status codes, and **whether the change is
-additive or breaking**. Force that last one explicitly: wherever a repo has a deprecation
-convention or a breaking-change gate on its schema diff, "is this additive?" is what decides
-whether the work is one PR or two, and it is much cheaper to answer here than at review.
+### API contract changes
 
-**This section usually answers `## Test plan`'s prod-verification question for free.** A new
-column or a new endpoint is very often the exact signal that proves the feature worked. If you
-write one here, say so there.
+Every new or changed endpoint, route, or message gets its request and response fields in a table.
+Put the things that aren't per-field below it: the auth lane, status codes, and **whether the
+change is additive or breaking**. Force that last one explicitly: wherever a repo has a
+deprecation convention or a breaking-change gate on its schema diff, “is this additive?” is what
+decides whether the work is one PR or two, and it is much cheaper to answer here than at review.
+
+Internal types belong only in the noun list and, when their shape matters, `### Proposed types`.
+
+**These sections usually answer `## Test plan`'s prod-verification question for free.** A new
+column or endpoint is very often the exact signal that proves the feature worked. If you write one
+here, say so there.
 
 ### Test plan
 
@@ -364,8 +389,9 @@ section has nothing to say, it says nothing.
 A `Q` block that just asks "what do you think?" wastes a round. Each one needs:
 
 - the decision to be made,
-- the options, concretely,
-- a recommendation,
+- the options, concretely; when there is more than one, label them `A.`, `B.`, and so on so the
+  user can answer with a letter,
+- a recommendation that names the option's letter,
 - why that recommendation follows — only the part specific to this fork, since the reasoning the
   design rests on is already in `## Approach`.
 
