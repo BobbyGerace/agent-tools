@@ -1,6 +1,6 @@
 ---
 name: explain-context
-description: Explain an unfamiliar part of the system from the ground up — entities, contracts, state, and where the business rules live — so the reader can reason about it before designing or changing anything. Use when the user asks what something is, how an area works, to be brought up to speed, to get their bearings, or names a subsystem/ticket/file they don't yet understand. Not for explaining a diff or a PR.
+description: Explicit invocation only. Use only when the user names `$explain-context`; never activate it by inferring intent from a question, a request for explanation, or mention of an unfamiliar subsystem, ticket, or file. Explains entities, contracts, state, and where business rules live from the ground up.
 ---
 
 # Explain Context

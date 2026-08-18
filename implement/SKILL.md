@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Execute a settled design — set up the worktree, work through the task list in chunks, verify once at the end, and leave everything uncommitted for review. Use when the user says to implement, build, or work through a design doc or a concrete task list. Replaces the old plan-then-work split; there is no separate planning pass.
+description: Explicit invocation only. Use only when the user names `$implement`; never activate it by inferring intent from a request to implement, build, change code, or execute a task list. Executes a settled design in a worktree, verifies it, and leaves the work uncommitted for review.
 ---
 
 # Implement

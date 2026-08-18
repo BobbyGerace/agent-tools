@@ -1,6 +1,6 @@
 ---
 name: design
-description: Collaboratively design a feature or change by iterating on a design doc — you write a skeleton with open questions, the user annotates it, you fold the annotations in, repeat until settled, then append a task list for implementation. Use before building anything non-trivial, when a change needs domain modeling thought, or when the user asks to design, spec, or think through an approach. Not for planning mechanical edits to an already-settled design.
+description: Explicit invocation only. Use only when the user names `$design`; never activate it by inferring intent from a request to design, spec, plan, build, or think through a change. Collaboratively develops a design doc through annotated rounds, then appends an implementation task list.
 ---
 
 # Design
@@ -21,44 +21,51 @@ types are already written.
 `~/designs/<topic>.md`. Not in the project repo — these are almost never checked in,
 and they need to outlive the worktree they were written in.
 
-Each round is a commit. That's how a round gets read:
+Round 1 is committed before the first handoff because the whole skeleton needs a full read. After
+that, each round begins with a checkpoint commit and ends with an uncommitted working-tree diff.
+The checkpoint records the document exactly as the user left it, including their annotations;
+the dirty revision is the next proposal.
 
 ```bash
 git -C ~/designs add <topic>.md
-git -C ~/designs commit -m "docs(<topic>): Round N — <what changed>" -- <topic>.md
-git -C ~/designs diff HEAD~1 -- <topic>.md
+git -C ~/designs commit -m "docs(<topic>): checkpoint round N annotations" -- <topic>.md
 ```
 
-**Name your own file in all four commands — never `add -A`, `add .`, or a bare `commit`.**
+**Name your own file in both commands — never `add -A`, `add .`, or a bare `commit`.**
 This repo is shared, and other sessions have their own designs open in it at the same time.
-Staging broadly sweeps someone else's half-written doc into your round, where they find it
+Staging broadly sweeps someone else's half-written doc into your checkpoint, where they find it
 committed under your message and your topic. The `-- <topic>.md` on `commit` is the guard that
 actually holds: it limits the commit to that path even when another file is already staged.
 
-Same rule for reading. A round's diff is only legible if it's scoped — an unscoped `HEAD~1`
-mixes another topic's edits into the thing the user is being asked to review.
-
-`--word-diff` is the one that matters. A plain line diff marks every reflowed line as changed
-and is useless on prose.
+The user reads the whole document from top to bottom. Ordinary changed-line indicators in any
+Git-aware editor show where the round changed the baseline and where to slow down. The working
+tree stays dirty so that requires no editor-specific base override. If they want a command-line
+fallback, give them `git -C ~/designs diff --word-diff -- <topic>.md`; it is navigation help, not
+the deliverable.
 
 ## The loop
 
 1. **Research, then write a skeleton.** Headings filled only where research makes the answer
    unambiguous; everything else an explicit `**Q<n>:**` block with the options, a
-   recommendation, and why the recommendation follows. Commit as round 1.
+   recommendation, and why the recommendation follows. Commit it as
+   `docs(<topic>): round 1 skeleton`.
 2. **The user annotates** with lines starting `@:` (leading whitespace is fine — their formatter
    indents them). Grep for them with `^\s*@:`.
-3. **Fold each annotation in**, per the archive rules below.
-4. **Format, then commit the round and hand it over.** Run
-   `prettier --write <topic>.md` first when `prettier` is on the PATH — it realigns the tables so
+3. **Checkpoint exactly what they reviewed**, including their annotations, using the scoped add
+   and commit above. This becomes the baseline for the next dirty revision.
+4. **Fold each annotation in**, per the archive rules below.
+5. **Format and hand over the dirty document.** Run `prettier --write <topic>.md` when `prettier`
+   is on the PATH — it realigns the tables so
    a sub-rowed noun list stays readable. It can't churn the doc: prettier's default
    `proseWrap: preserve` leaves your prose line breaks alone, and running it over an existing
-   design doc produced a zero-line diff. Skip it silently if prettier isn't installed. Print a
-   `Material changes this round` list, then both diff commands. The diff is the deliverable; they
-   read that, not the doc.
-5. **Repeat** until no `Q` blocks are open.
-6. **Append a `## Tasks` section** — concrete, ordered, each one a chunk. This is the handoff
-   to `implement`, and it's what lets that skill start from a clean context.
+   design doc should leave unrelated prose alone. Skip it silently if prettier isn't installed.
+   Print a `Material changes this round` list, then ask the user to reread the whole document;
+   changed-line indicators are attention guidance, not a substitute for that read.
+6. **Repeat** until no `Q` blocks are open.
+7. **Append a `## Tasks` section** — concrete, ordered, each one a chunk. This is the handoff
+   to the downstream `$implement` workflow, and it lets that workflow start from a clean context.
+   Leave this final proposal dirty for review too. After the user approves it, commit it as
+   `docs(<topic>): finalize design` before handing it to `$implement`.
 
 ### Material changes
 
@@ -75,7 +82,7 @@ user already approving it:
 At handoff, list every newly introduced item from those categories under `Material changes this
 round`; write `None` when there are none. Name the mechanism, not only its purpose: “add a durable
 dispatch table and migration,” not “make retries safe.” This callout directs review; it does not
-replace the scoped diff or the full specification in `## Domain`.
+replace the full-document read or the specification in `## Domain`.
 
 ### Handling annotations
 
@@ -98,7 +105,7 @@ paragraph that only made sense against a superseded mechanism goes with it, and 
 turned out to measure the wrong thing is removed rather than annotated. This applies to your own
 findings, not just to their annotations: most of what goes stale is research from an earlier round
 that a later one overtook. Nothing is lost by deleting it, because the thread that produced it is
-preserved below — and the round's diff is where they watch it go.
+preserved below — and the working-tree diff is where they watch it go.
 
 `Resolved` is append-only and lives at the bottom, so it never shows up in a round's diff
 except as new lines at the end. IDs never renumber. By round 6 it will be the longest section
@@ -115,17 +122,18 @@ matter how good the tooling is. After round 1:
   prose.
 - Renaming a concept is an explicit find-and-replace, not licence to rewrite the section.
 - If the doc genuinely needs reorganizing, **ask first**, and do it as its own round with
-  nothing else in it — one commit whose diff is honestly unreadable, and everyone knows which.
+  nothing else in it. Its working-tree diff will be honestly unreadable, and everyone knows why.
 
-**Pruning is not restructuring.** What this rule forbids is *moving* text. Deleting a claim a
-later round disproved is the most legible diff there is, and it is required — see *Prune as you
-fold*.
+**Pruning is not restructuring.** What this rule forbids is _moving_ text. Deleting a claim a
+later round disproved is the most legible diff there is, and it is required — see _Prune as you
+fold_.
 
-No `~vN` markers on touched headings. They churn every round and `--stat` already answers it.
+No `~vN` markers on touched headings. They churn every round, and the editor gutter already shows
+what changed.
 
 ## Starting over: a v2
 
-Pruning keeps the body true. It cannot fix a doc whose *shape* is wrong, and after several
+Pruning keeps the body true. It cannot fix a doc whose _shape_ is wrong, and after several
 changes of direction that is what you have: sections ordered by the sequence the questions
 arrived in rather than what a reader needs, a subsection per round, back-references to threads,
 and vocabulary chosen under a mechanism that has since been replaced. **A frame survives pruning**,
@@ -166,9 +174,11 @@ Seven top-level headings. The DDD material is collapsed into one.
 
 ## Domain
 
-## Test plan # pre-merge: which of the six layers apply
+## Test plan
 
-                 # post-deploy: what signal proves it worked, and does it exist yet?
+### Pre-merge tests
+
+### Production verification
 
 ## Tasks
 
@@ -204,7 +214,7 @@ The format, with a made-up example — use your repo's real layers, paths, and t
 | ------------------------- | ------------------------------------------------- | --------------- |
 | `SchedulerSnooze`         | the follow-up row; the only durable cadence state | **new columns** |
 | `SchedulerFollowUpSource` | `Auto` = a cadence retry, `Human` = a promise     | read            |
-| `StaleLeadDigestWorkflow` | the daily 72-hour digest, 8 files                 | **delete**      |
+| `StaleLeadDigestWorkflow` | an obsolete scheduled workflow                    | **delete**      |
 ```
 
 Use the layer headings that fit what you found — typically **persisted state**, **functional
@@ -216,7 +226,7 @@ Rules, because this section fails in predictable ways:
 - **One line per noun. No exceptions.** This table is an index, not a spec — its job is to let
   you see what's in play and what the blast radius is, in one pass. The moment a cell holds a
   field list or two sentences, markdown pads every other cell to match and the table stops being
-  readable at all. A real design doc reached **351 characters** on a line this way.
+  readable at all.
 - **No lists in cells.** If a noun's fields, columns, or enum members matter, they belong in
   `### Persistence changes` (for tables), `### API contract changes` (for endpoints and messages),
   or `### Proposed types` (for internal types) — not here. Here it gets a phrase: “the follow-up
@@ -237,9 +247,10 @@ Rules, because this section fails in predictable ways:
   `sealed record`, an `abstract record` (a union), or a DI-injected service is exactly the
   information the table exists to carry, and it's the thing most easily got wrong from memory.
   `grep` the declaration.
-- **Name the nouns that don't have types yet.** Identifiers and quantities this change passes
-  around as bare `string` or `int` are nouns whose row is missing (`ddd` rule 9). Say which are
-  becoming opaque types and which stay primitive because they never leave the edge.
+- **Name the nouns that don't have types yet.** Identifiers and quantities that cross a boundary
+  should use domain-specific types rather than bare `string` or `int` values. Give each one a row,
+  and say which are becoming opaque types and which stay primitive because they never leave the
+  edge.
 
 Then any of these as `###` subsections, only when the change actually calls for them:
 
@@ -261,18 +272,16 @@ Then any of these as `###` subsections, only when the change actually calls for 
 ### Invariants # what must always be true, and what enforces it
 ```
 
-**`### State space` carries the transition table** when the change is a state machine. The
-variants and the legal transitions you would write anyway; four more get skipped and are the
-ones worth forcing: **the identity that makes each event idempotent**, behavior for
-**duplicate, stale, and out-of-order** arrival, which states are **terminal versus resumable**,
-and the **concurrency rule**. Those double as the layer-1 test rows.
+**`### State space` carries the transition table** when the change is a state machine. Document
+the states and legal transitions. Also specify four concerns that transition diagrams often omit:
+the event identity that provides idempotency; duplicate, stale, and out-of-order events; terminal
+versus resumable states; and concurrency behavior.
 
-**Mark the rows that get a test with a `T` column.** The table has two jobs — it documents the
-machine's legal transitions *and* it is the layer-1 test budget — and they don't have the same
-row set. A transition worth naming isn't automatically a transition worth asserting, so without
-the column the reader can't cut a test without deleting documentation, and every transition
-added to the spec silently buys a test. The marked count is what `## Test plan` cites, and the
-marks are where the argument about the count happens.
+**Mark the rows that become individual transition tests with a `Test?` column containing `yes` or
+`no`.** The table has two jobs — it documents the machine's legal transitions and sets the
+transition-test budget — and they do not necessarily have the same row set. A transition worth
+naming is not automatically worth asserting. The test plan cites the number of `yes` rows, so the
+reader can change the test count without deleting useful state-machine documentation.
 
 Rules that keep the optionality honest:
 
@@ -283,8 +292,8 @@ Rules that keep the optionality honest:
   skipping a visible decision they can push back on rather than a silent omission.
 
 Depth scales with how much is being written from scratch. Greenfield fills most of the
-subsections. A small modification to existing code may have nothing but the noun list and a
-test plan — see `ddd`'s scope rule.
+subsections. A small modification to existing code may have nothing but the noun list and a test
+plan; include domain detail in proportion to the new state space and boundary risk.
 
 ### Persistence changes
 
@@ -293,8 +302,8 @@ this subsection even when persistence was discovered in a later round or exists 
 an endpoint. A noun-list row is never enough to introduce durable state.
 
 Only what moves. An unchanged table gets its one-liner upstairs and nothing more, and a table
-you're altering shows the columns you're adding or changing — not its existing 30. No DDL:
-`implement` writes the migration.
+you're altering shows the columns you're adding or changing — not its existing 30. No DDL: the
+downstream `$implement` workflow writes the migration.
 
 **Governing rule: per-column facts go in the table, anything spanning columns goes below it.**
 A compound index, a composite primary key, a multi-column unique, a partial unique with a
@@ -341,31 +350,33 @@ here, say so there.
 
 ### Test plan
 
-**A table, one row per test, one line per row, and no prose.** This section is approved by being
-skimmed — the user strikes the rows they don't want — and prose defeats that in a specific way: it
-hides the count, which is the thing worth arguing about. Thirty lines of justified paragraphs make
-nine proposed tests look like a description of care rather than a number someone should push back
-on.
+Under `### Pre-merge tests`, use **one table row per test, one line per row, and no explanatory
+paragraphs**. A marked transition table may be one counted row because it already names the
+individual cases. This section is approved by being skimmed — the user strikes the rows they do
+not want — and prose hides the count, which is the thing worth arguing about.
 
 ```markdown
-| L   | Case                                    | Expected                         |
-| --- | --------------------------------------- | -------------------------------- |
-| 1   | transition table above, 5 of 9 marked   | —                                |
-| 2   | blank key on either side                | never matches                    |
-| 4   | captured payload, contact with no email | href as the consumer receives it |
-| 4   | 401 body                                | unlinkable, distinct copy        |
+### Pre-merge tests
 
-3, 5, 6 — none: no persistence, no durable state, no ordering.
-Rewrite: the existing owner-button test. 8 tests.
+| Test kind         | Case                                    | Expected                         | Change           |
+| ----------------- | --------------------------------------- | -------------------------------- | ---------------- |
+| Transition        | transition table above, 5 rows marked   | outcomes shown in the table      | add 5            |
+| Invariant         | blank key on either side                | never matches                    | add              |
+| Provider contract | captured payload, contact with no email | href as the consumer receives it | rewrite existing |
+| Provider contract | unauthorized response body              | unlinkable, distinct copy        | add              |
+
+No persistence-mapping, replay/interleaving, or end-to-end tests: this change adds no
+persistence, durable state, or ordering behavior. Total: 8 tests.
 ```
 
-It also answers, in a line or two, **how this gets verified in prod after it deploys** — because
-that question has a code consequence and `ship` is too late to discover it. If proving the
-feature works needs a log line, a metric, or a column that doesn't exist yet, **that's a task**,
-and it goes in `## Tasks` like any other. Otherwise `ship` ends up writing a weak proxy check or
-going back to add instrumentation after the fact.
+Under `### Production verification`, answer in a line or two **how this gets verified in
+production after it deploys**. That question has a code consequence, and the downstream `$ship`
+workflow is too late to discover it. If proving the feature works needs a log line, metric, or
+column that does not exist yet, **that is a task**, and it goes in `## Tasks` like any other.
+Otherwise `$ship` ends up writing a weak proxy check or going back to add instrumentation after
+the fact.
 
-Only the first of `ship`'s two M&V questions usually needs anything:
+Only the first of `$ship`'s two monitoring-and-verification questions usually needs anything:
 
 - **"Does the new thing work?"** — new behavior, so often no signal exists yet. This is the one
   to think about here. Name the signal: the log event and its fields, the metric, the row that
@@ -373,8 +384,9 @@ Only the first of `ship`'s two M&V questions usually needs anything:
 - **"Did we break the happy path?"** — watches pre-existing behavior, so the signal almost always
   already exists at a known volume. Nothing to build; just note what it'll be.
 
-Don't write the queries here. Thresholds and query strings are `ship`'s job, and they'd be stale
-by the time it runs. This section decides **what must be observable**, not how it gets asked.
+Don't write the queries here. Thresholds and query strings are `$ship`'s job, and they would be
+stale by the time it runs. This section decides **what must be observable**, not how it gets
+asked.
 
 ## Length
 
@@ -421,11 +433,15 @@ a restructure.
 
 ## Then what
 
-When there are no open questions, do one more pass over the full document
-to check for inconsistencies and fix what you find. Then write `## Tasks` and output:
+When there are no open questions, do one more pass over the full document to check for
+inconsistencies and fix what you find. Then write `## Tasks`, leave that final proposal dirty, and
+ask the user for one last full-document review. Do not call the design settled yet.
+
+After the user approves that revision, commit the named file as `docs(<topic>): finalize design`
+and output:
 
 ```
 Design settled. Start a new session (or /clear) and run
-`/implement ~/designs/<topic>.md` — a fresh context gets the full budget
+`$implement ~/designs/<topic>.md` — a fresh context gets the full budget
 for the work, and the task list is the handoff.
 ```

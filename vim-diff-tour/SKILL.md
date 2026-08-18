@@ -1,6 +1,6 @@
 ---
 name: vim-diff-tour
-description: Turn a diff, PR, branch, or commit range into a guided Neovim quickfix "tour" — a short, deliberately ordered list of only the highest-leverage changes, written as a JSON file the user loads with setqflist(). Use this whenever the user wants to review, understand, walk through, or be walked through a set of code changes in Vim or Neovim, or asks for a quickfix list / qflist / jump list built from a diff, PR, or commit range. Also use it when they ask "what should I actually look at in this diff" and they're a Vim user. Do NOT use it to produce an exhaustive change log — the whole point is aggressive selection.
+description: Explicit invocation only. Use only when the user names `$vim-diff-tour`; never activate it by inferring intent from a request to review, understand, or walk through a diff, PR, branch, or commit range. Produces a short, deliberately ordered Neovim quickfix tour of the highest-leverage changes.
 ---
 
 # Vim Diff Tour

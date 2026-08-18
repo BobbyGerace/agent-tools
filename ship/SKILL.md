@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Commit the work, write the PR description, author the prod verification spec, and open a draft PR. Use when the user says to ship it, push it, open a PR, or that the implementation is ready for review. Also covers responding to an automated reviewer's findings.
+description: Explicit invocation only. Use only when the user names `$ship`; never activate it by inferring intent from a request to commit, push, open a PR, prepare work for review, or address reviewer findings. Commits finished work, writes review and verification material, and opens a draft PR.
 ---
 
 # Ship
