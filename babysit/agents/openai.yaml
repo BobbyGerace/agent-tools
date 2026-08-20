@@ -1,0 +1,4 @@
+interface:
+  display_name: "Babysit"
+  short_description: "Monitor long-running work until it settles"
+  default_prompt: "Use $babysit to monitor this process every five minutes until it succeeds or needs my input."

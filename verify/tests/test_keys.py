@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Drive the real key handler with a scripted keystream — no terminal."""
 import datetime as dt, importlib.machinery, importlib.util, os, sys, tempfile, curses
+from types import SimpleNamespace
 
 SB=tempfile.mkdtemp(); os.makedirs(SB+"/active"); os.environ["VERIFY_HOME"]=SB
 VERIFY_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -13,6 +14,9 @@ curses.color_pair=lambda n:0
 curses.curs_set=lambda n:None
 curses.use_default_colors=lambda:None
 curses.init_pair=lambda *a:None
+curses.def_prog_mode=lambda:None
+curses.endwin=lambda:None
+curses.reset_prog_mode=lambda:None
 core.notify=lambda *a:None
 core.merge_state=lambda s:"MERGED"
 
@@ -31,6 +35,7 @@ class Screen:
     def __init__(s, keys): s.keys=list(keys); s.h,s.w=24,110
     def getmaxyx(s): return (s.h,s.w)
     def erase(s): pass
+    def clear(s): pass
     def refresh(s): pass
     def addnstr(s,*a,**k): pass
     def timeout(s,n): pass
@@ -76,6 +81,16 @@ ck("arrows navigate", b.selected, 1)
 print("-- h in the list view is inert --")
 b,_=drive([ord("j"), ord("h"), ord("q")])
 ck("h did not change selection", b.selected, 1)
+
+print("-- o opens the selected spec in the editor --")
+opened=[]
+vb.subprocess.run=lambda cmd, **kwargs: (opened.append((cmd, kwargs)), SimpleNamespace(returncode=0))[1]
+os.environ["EDITOR"]="vim -f"
+b,_=drive([ord("j"), ord("o"), ord("q")])
+ck("editor invoked once", len(opened), 1)
+ck("editor arguments preserved", opened[0][0][:2], ["vim", "-f"])
+ck("selected spec passed to editor", opened[0][0][-1].endswith("beta.toml"), True)
+ck("editor does not use a shell", "shell" not in opened[0][1], True)
 
 print("-- a archives the selected spec --")
 b,_=drive([ord("j"), ord("a"), ord("q")])

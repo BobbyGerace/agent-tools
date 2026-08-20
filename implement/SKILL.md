@@ -23,6 +23,14 @@ implement ~/designs/<topic>.md
 The design doc's `## Tasks` section is the task list, and the doc is the context — that's why
 this can start in a fresh session with the full budget for the work.
 
+Read the whole document before planning chunks. When it has a `## Context` section, retrieve each
+linked artifact or identified record that bears on implementation before writing code: tickets,
+exact design frames, conversation threads, research, recordings, dashboards, or case identifiers.
+Use the available connector or read-only data path rather than relying on the link label. If a
+required reference is inaccessible and the design body does not preserve the necessary fact, ask
+for access or the smallest missing excerpt; do not guess. Context references inform the work, but
+the settled decisions in the design remain authoritative.
+
 **No design doc?** Then the one thing the old planning phase guaranteed is missing: blocking
 questions asked before any code exists. So ask them first. Each question needs the decision,
 the options, a recommendation, and why. Don't start writing until the answers that change the
@@ -46,7 +54,7 @@ multiple-choice prompt about it.
 Each chunk is at most a few hundred lines.
 
 ```
-write the chunk → next chunk → … → verify once, at the end
+write the chunk → next chunk → … → verification phase at the end
 ```
 
 **Don't build or run the suite per chunk.** It is the single biggest waste in this loop: a
@@ -104,7 +112,8 @@ actually proves the feature works:
 
 **Build success is not verification.** A compiling feature that was never executed is
 unverified, and saying otherwise is the thing not to do. But the reverse is also true: running
-the feature is not a substitute for the required checks below. Both, always — and both once.
+the feature is not a substitute for the required checks below. Do both in one end-of-work
+verification phase; if either exposes a defect, fix it and rerun the affected checks.
 
 **Neither is a test whose fixtures you wrote by reading source.** A provider's code gives you its
 shape, never that your request works or that real rows look like your fixture. So where the design
@@ -113,7 +122,7 @@ If you can't reach it, **stop and ask them to run it**; shipping the inference i
 sign-off out loud, not a line in the deviation list. And if the change renders something, look at
 it rendered.
 
-### Required checks — once, after the last chunk
+### Required checks — after the last chunk
 
 When the work is done, these must pass:
 
@@ -121,9 +130,11 @@ When the work is done, these must pass:
 2. **Format and lint are clean.**
 3. **The tests pass** — the existing suite for what you touched, plus anything you wrote.
 
-**Once, not per chunk.** The cost of the alternative is the whole point: these are the slowest
-commands in the loop, and running them N times to learn the same thing N times is where an
-implementation session quietly loses its afternoon.
+**Use one verification phase, not one invocation per chunk.** The cost of the alternative is
+the whole point: these are the slowest commands in the loop, and running them N times to learn
+the same thing N times is where an implementation session quietly loses its afternoon. A failed
+check starts a diagnose-fix-rerun cycle inside that phase; it does not make an incomplete tree
+the user's problem.
 
 What that trades away is attribution — a failure at the end doesn't say which chunk caused it.
 That's recoverable and cheap: the chunk summaries say what each one touched, and everything is
@@ -237,9 +248,12 @@ If it turns out that signal can't be emitted where the design assumed — wrong 
 the field, the event fires on a path that doesn't run — **say so now, in the chunk summary.**
 Discovering it at `ship` means shipping without verification or going back to instrument.
 
-**A failing test is a stop, not a note.** Report it with the output and wait — do not proceed
-to the next chunk, and do not describe the work as done. If a test was already failing on the
-base commit, say so explicitly and carry on; a pre-existing failure is context, not permission.
+**A failing check prevents completion, not continued implementation.** Build, typecheck,
+format, lint, codegen, and test failures are normal implementation feedback when they expose a
+local defect consistent with the settled design. Inspect the complete output, fix all related
+occurrences, and rerun the affected check; do not stop merely because the first written version
+does not compile or a changed test fails. If a test was already failing on the base commit, say
+so explicitly and carry on; a pre-existing failure is context, not permission.
 
 If discovery genuinely turns up nothing runnable, **ask** rather than inventing a command.
 
@@ -278,19 +292,43 @@ mandate to sweep the suite, just the ones in reach.
 
 ## Step 5: When something's wrong
 
-**Stop on failure.** Don't attempt fixes past the second try on the same error — report:
+Classify the failure before deciding whether to stop.
+
+**Continue autonomously** when the next step is a credible, in-scope correction that preserves
+the settled design: missing imports, type errors, formatting or lint findings, stale generated
+files, incorrect assertions, and the same mechanical change surfacing at additional call sites
+or files. Read the complete diagnostic, fix all related occurrences, and rerun the narrowest
+check that proves the correction before resuming broader verification.
+
+Do not count compiler-guided cleanup across additional diagnostics, files, or call sites as
+repeated failed approaches. A retry limit is useful only when substantially the same proposed
+fix keeps failing without producing new information; it is not a limit on ordinary debugging.
+
+**Stop and ask** only when continuing requires one of these:
+
+- changing a settled design decision or choosing between materially different product shapes;
+- authority, credentials, production access, or required external verification that is unavailable;
+- destructive, unsafe, or materially out-of-scope work;
+- untangling pre-existing repository damage that cannot be safely isolated; or
+- another materially different approach after multiple credible approaches have failed and no
+  evidence-backed next step remains.
+
+Report a genuine stop as:
 
 ```
 ## Chunk N failed: <name>
 Error: <message>
 Files modified before failure: <list>
-Options: 1) fix and retry  2) roll back  3) change the approach
+Why this needs a decision: <design, authority, external dependency, safety, or impasse>
+Options: <specific reviewable choices, with a recommendation>
 ```
 
-If the design turns out to be wrong rather than the code, say so and stop. Grinding on a bad
-design is worse than losing ten minutes.
+If the design turns out to be wrong rather than the code, say so and stop before building more
+work on it. Do not use the failure template for routine implementation feedback that can be
+resolved within the agreed scope.
 
-**It is always fine to say a task is too hard.** Bad work is worse than no work.
+When a genuine impasse remains after the safe, evidence-backed options are exhausted, say so
+plainly. Bad work is worse than no work.
 
 ## Step 6: Self-review before reporting done
 
@@ -379,8 +417,9 @@ design — not a naming nit, an actual change of approach — say so in that chu
 summary as well. The report is the backstop, not the first notice; a design that was wrong is
 usually worth knowing before three more chunks are built on it.
 
-Report faithfully throughout. If a test fails, say so and show the output. If a chunk was
-skipped, say which and why. Don't hedge on things that are actually done and verified.
+Report faithfully throughout. Summarize failures you corrected when they materially affect the
+review, and show unresolved failure output when asking for a decision. If a chunk was skipped,
+say which and why. Don't hedge on things that are actually done and verified.
 
 ## Subagents
 

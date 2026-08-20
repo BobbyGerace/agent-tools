@@ -634,10 +634,11 @@ def _datadog_aggregate(check: dict, path: str, what: str) -> tuple[float, str]:
     )
     buckets = body.get("data", {}).get("buckets", [])
     if not buckets:
-        return 0.0, f"count=0 (no matching {what} buckets in window)"
+        return 0.0, (f"count=0 over {check['window']} "
+                     f"(no matching {what} buckets in window)")
     computes = buckets[0].get("computes", {})
     if not computes:
-        return 0.0, "count=0"
+        return 0.0, f"count=0 over {check['window']}"
     count = float(next(iter(computes.values())))
     return count, f"count={num(count)} over {check['window']}"
 

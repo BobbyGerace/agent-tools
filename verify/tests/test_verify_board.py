@@ -131,7 +131,7 @@ check("alpha silent (clean first tick)", any("Alpha" in t for t in titles), Fals
 print("\n-- state survives a restart --")
 restored = vb.Board()
 check("verdicts restored", core.summarize(restored.results["beta"]), (1, 2))
-truthy("schedule restored", "beta" in restored.next_run)
+check("restored evidence is immediately refreshed", "beta" in restored.next_run, False)
 check("restored detail is labelled", restored.results["beta"]["beta:check one"]["detail"],
       "(from last session)")
 
@@ -225,7 +225,7 @@ win = FakeWin(h=3, w=20)
 vb.draw_list(win, board)
 print("  ok  no exception at 3x20")
 
-print("\n-- draw_detail shows evidence only for failures --")
+print("\n-- draw_detail shows evidence for every result --")
 board.results["alpha"] = {
     "alpha:check one": {"state": core.PASS, "detail": "ok", "raw": "1", "query": "select 1"},
     "alpha:check two": {"state": core.FAIL, "detail": "bad", "raw": "9",
@@ -235,11 +235,12 @@ win = FakeWin()
 vb.draw_detail(win, board, alpha, 0)
 out = win.text()
 truthy("failing query shown", "select failing_thing" in out)
-check("passing query hidden", "select 1" in out, False)
+truthy("passing query shown", "select 1" in out)
 truthy("healthy note shown for the failing check",
        "expect: some events means it is alive" in out)
-check("healthy note hidden for the passing check", "expect: zero is good" in out, False)
+truthy("healthy note shown for the passing check", "expect: zero is good" in out)
 truthy("raw output shown", "got: 9" in out)
+truthy("passing raw output shown", "got: 1" in out)
 
 print("\n-- draw_detail scroll is clamped --")
 max_scroll = vb.draw_detail(win, board, alpha, 9999)

@@ -62,8 +62,10 @@ the deliverable.
    Print a `Material changes this round` list, then ask the user to reread the whole document;
    changed-line indicators are attention guidance, not a substitute for that read.
 6. **Repeat** until no `Q` blocks are open.
-7. **Append a `## Tasks` section** — concrete, ordered, each one a chunk. This is the handoff
-   to the downstream `$implement` workflow, and it lets that workflow start from a clean context.
+7. **Append a `## Tasks` section** — concrete, ordered, each one a chunk. Before handoff, verify
+   that `## Context`, when present, contains every external artifact and identifier the implementer
+   will need. The document is forwarded whole to the downstream `$implement` workflow, so it can
+   start from a clean session without relying on this conversation.
    Leave this final proposal dirty for review too. After the user approves it, commit it as
    `docs(<topic>): finalize design` before handing it to `$implement`.
 
@@ -163,10 +165,12 @@ that used to be true. **The user calls for it; you don't need to offer it.**
 
 ## The template
 
-Seven top-level headings. The DDD material is collapsed into one.
+Seven required top-level headings, plus optional `Context`. The DDD material is collapsed into one.
 
 ```markdown
 # <Feature> Design
+
+## Context <!-- optional; omit when there are no external references -->
 
 ## Problem
 
@@ -186,6 +190,23 @@ Seven top-level headings. The DDD material is collapsed into one.
 
 ## Resolved
 ```
+
+### Context
+
+Put `## Context` immediately after the title when implementation depends on material outside the
+document: tickets, design files or exact frames, conversation permalinks, research documents,
+recordings, dashboards, or database and trace identifiers. Omit the section when there is nothing
+to attach.
+
+Use one bullet per reference: a stable link or copyable identifier, followed by one short clause
+explaining what it contributes. Name exact Figma nodes or frames rather than linking only to a
+file; qualify opaque IDs with their entity type and environment. Include only what the implementer
+needs, not every source consulted during design.
+
+The section is a retrieval index, not a substitute for the design. Fold decisions and facts the
+implementation relies on into the relevant body sections, so a stale permission or unavailable
+connector does not make the specification incomplete. Do not paste private payloads, production
+rows, or conversation transcripts into the document when a durable reference suffices.
 
 ### Approach
 
@@ -442,6 +463,6 @@ and output:
 
 ```
 Design settled. Start a new session (or /clear) and run
-`$implement ~/designs/<topic>.md` — a fresh context gets the full budget
-for the work, and the task list is the handoff.
+`$implement ~/designs/<topic>.md` — the whole document, including its Context references,
+is the handoff, and a fresh context gets the full budget for the work.
 ```

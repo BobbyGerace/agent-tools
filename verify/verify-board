@@ -23,6 +23,7 @@ from __future__ import annotations
 import curses
 import datetime as dt
 import os
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -76,11 +77,12 @@ class Board:
     # -- persistence -------------------------------------------------------- #
 
     def _restore_from_state(self):
-        """Reload schedule and last-known verdicts so a restart isn't a reset.
+        """Reload last-known verdicts and metadata so a restart isn't blank.
 
         Only check *states* are persisted, not queries or raw output — those go
-        stale and are large. So after a restart the board shows the right
-        pass/fail counts, and the detail view fills in on the next run.
+        stale and are large. A restored verdict is therefore made due immediately:
+        keeping its old schedule would leave the detail view without evidence until
+        that time arrived.
         """
         state = core.load_state()
         for name, entry in state.get("specs", {}).items():
@@ -88,7 +90,7 @@ class Board:
                 label: {"state": st, "detail": "(from last session)", "raw": "", "query": ""}
                 for label, st in (entry.get("results") or {}).items()
             }
-            for field, target in (("next_run", self.next_run), ("last_run", self.last_run),
+            for field, target in (("last_run", self.last_run),
                                   ("merge_checked", self.merge_checked)):
                 stamp = entry.get(field)
                 if stamp:
@@ -455,10 +457,10 @@ def draw_list(win, board: Board):
     _, list_width = win.getmaxyx()
     put(win, height - 1, 2, fit_hint([
         "jk/↑↓ select   l/enter detail   gG top/bottom   "
-        "r run now   a archive   c copy claude cmd   q quit",
-        "jk select   l detail   gG top/bot   r run   a archive   c copy   q quit",
-        "jk  l detail  r run  a arch  c copy  q quit",
-        "jk l r a c q",
+        "r run now   o open   a archive   c copy claude cmd   q quit",
+        "jk select   l detail   gG top/bot   r run   o open   a archive   c copy   q quit",
+        "jk  l detail  r run  o open  a arch  c copy  q quit",
+        "jk l r o a c q",
     ], list_width - 3), curses.A_DIM)
     win.refresh()
 
@@ -503,15 +505,15 @@ def draw_detail(win, board: Board, spec: core.Spec, scroll: int) -> int:
             continue
         lines.append((f"  {_mark(res['state'])}  {check['name']}   {res['detail']}",
                       curses.color_pair(_pair(res["state"]))))
-        # Evidence only where it earns the space: a passing check's query is
-        # noise, but a failing one is exactly what you opened this view for.
-        if res["state"] in (core.FAIL, core.WARN, core.ERROR):
-            for qline in (res.get("query") or "").strip().splitlines():
-                lines.append((f"        {qline.strip()}", curses.A_DIM))
-            if check.get("healthy"):
-                lines.append((f"        expect: {check['healthy']}", curses.A_DIM))
-            for rline in (res.get("raw") or "").splitlines()[:6]:
-                lines.append((f"        got: {rline}", curses.A_DIM))
+        # The window and observed value are part of the result, even when it
+        # passed: zero events over 30 minutes is materially different evidence
+        # from zero events over a week.
+        for qline in (res.get("query") or "").strip().splitlines():
+            lines.append((f"        {qline.strip()}", curses.A_DIM))
+        if check.get("healthy"):
+            lines.append((f"        expect: {check['healthy']}", curses.A_DIM))
+        for rline in (res.get("raw") or "").splitlines()[:6]:
+            lines.append((f"        got: {rline}", curses.A_DIM))
         lines.append(("", 0))
 
     height, width = win.getmaxyx()
@@ -565,6 +567,21 @@ def copy_to_clipboard(text: str) -> bool:
         return True
     except Exception:
         return False
+
+
+def open_in_editor(win, spec: core.Spec) -> bool:
+    """Give the terminal to $EDITOR, then restore the curses board."""
+    try:
+        command = shlex.split(os.environ.get("EDITOR", "vim")) or ["vim"]
+        curses.def_prog_mode()
+        curses.endwin()
+        return subprocess.run([*command, spec.path], check=False).returncode == 0
+    except (OSError, ValueError):
+        return False
+    finally:
+        curses.reset_prog_mode()
+        win.clear()
+        win.refresh()
 
 
 # --------------------------------------------------------------------------- #
@@ -648,6 +665,14 @@ def run(stdscr, board: Board):
                 with board.lock:
                     board.message = ("copied investigate command for "
                                      f"{spec.name}") if ok else "pbcopy failed"
+        elif key == ord("o"):
+            spec = board.selected_spec()
+            if spec:
+                ok = open_in_editor(stdscr, spec)
+                board.rescan()
+                with board.lock:
+                    board.message = (f"opened {spec.name}" if ok else
+                                     f"editor failed for {spec.name}")
 
 
 def main() -> int:

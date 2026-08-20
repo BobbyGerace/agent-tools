@@ -104,12 +104,15 @@ ck("and it is due (due() returns first by name, so check directly)",
    b.next_run["delta"] <= dt.datetime.now())
 ck("status line says why", "changed" in b.message)
 
-print("\n8. Restart honours the schedule instead of re-running everything")
+print("\n8. Restart refreshes verdicts whose evidence was not persisted")
 w("epsilon", f'[spec]\nstarted = {old}\n'+chk("select 5"))
 b.rescan()
 e=next(s for s in b.specs if s.name=="epsilon")
 b.record(e, fake(e))
 b._persist()
 r=vb.Board(); r.rescan()
-ck("mtime restored, so not treated as edited", r.next_run["epsilon"] > dt.datetime.now())
-ck("epsilon not due after restart", all(s.name!="epsilon" for s in [r.due()] if s))
+ck("mtime restored without restoring the evidence-less schedule",
+   "epsilon" not in r.next_run)
+for spec in r.specs:
+   if spec.name != "epsilon": r.next_run[spec.name] = dt.datetime.now() + dt.timedelta(days=1)
+ck("epsilon is due after restart", r.due().name, "epsilon")

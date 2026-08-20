@@ -1,0 +1,4 @@
+interface:
+  display_name: "Investigate"
+  short_description: "Investigate incidents from runtime evidence"
+  default_prompt: "Use $investigate to determine what happened and support the conclusion with runtime evidence."

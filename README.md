@@ -12,7 +12,7 @@ Symlink each one into `~/.claude/skills/`:
 
 ```bash
 REPO=$(pwd)                       # wherever you cloned this
-for s in explain-context design implement ship ddd vim-diff-tour; do
+for s in explain-context design implement ship ddd vim-diff-tour babysit investigate; do
   ln -s "$REPO/$s" ~/.claude/skills/"$s"
 done
 ```
@@ -25,10 +25,14 @@ done
 | `ship`            | Commits, writes the PR, authors the verify spec, opens a draft  | by you               |
 | `ddd`             | The domain-modeling standard and code shape rules               | loaded by the others |
 | `vim-diff-tour`   | Turns a diff or PR into an ordered Neovim quickfix reading tour | by you               |
+| `babysit`         | Monitors asynchronous work at a deterministic cadence           | by you               |
+| `investigate`     | Diagnoses behavior from runtime evidence and code                | automatically        |
 
 The loop: `explain-context` (if the domain is unfamiliar) → `design` → `implement` → `ship`.
 `ddd` is a reference bundle the other three load; there's no reason to invoke it directly.
 `vim-diff-tour` sits outside the loop — it's for reading someone else's change, not making one.
+`babysit` also sits outside the loop — it watches long-running work through a terminal outcome.
+`investigate` sits outside the loop too — it explains observed behavior without changing it.
 
 `design` keeps its docs in `~/designs/` as a git repo, one file per design, one commit per
 round. Create it before first use:
@@ -163,4 +167,3 @@ exploring.
 Be clear on what it is: a **regression test**, catching names already removed once. It cannot
 catch a new internal name, because a denylist only knows what someone thought to add. That gap is
 what reading the diff is for.
-

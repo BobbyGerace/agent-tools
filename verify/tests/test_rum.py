@@ -56,8 +56,10 @@ ck("logs count parsed", v, 3.0)
 print("\n-- empty results --")
 urllib.request.urlopen=fake_urlopen({"data":{"buckets":[]}})
 v,raw=core.run_rum(dict(CHK)); ck("no buckets -> 0", v, 0.0); ck("raw says RUM", "RUM" in raw)
+ck("no buckets still names the window", "over 2h" in raw)
 urllib.request.urlopen=fake_urlopen({"data":{"buckets":[{"computes":{}}]}})
-v,_=core.run_rum(dict(CHK)); ck("empty computes -> 0", v, 0.0)
+v,raw=core.run_rum(dict(CHK)); ck("empty computes -> 0", v, 0.0)
+ck("empty computes still names the window", "over 2h" in raw)
 
 print("\n-- 403 explains the likely cause --")
 def raise403(req, timeout=None):
