@@ -1,6 +1,6 @@
 # agent-tools
 
-A set of Claude Code skills for a design → implement → ship loop, plus the prod-verification
+A set of Claude Code skills for a design → implement → review → ship loop, plus the prod-verification
 tooling that loop depends on.
 
 Everything is symlinked into place rather than copied, so the working copy is the repo and there
@@ -12,7 +12,7 @@ Symlink each one into `~/.claude/skills/`:
 
 ```bash
 REPO=$(pwd)                       # wherever you cloned this
-for s in explain-context design implement ship ddd vim-diff-tour babysit investigate; do
+for s in explain-context grill-me design design-v2 implement implement-v2 review ship ddd vim-diff-tour babysit investigate; do
   ln -s "$REPO/$s" ~/.claude/skills/"$s"
 done
 ```
@@ -20,16 +20,26 @@ done
 | Skill             | Does                                                            | Invoked              |
 | ----------------- | --------------------------------------------------------------- | -------------------- |
 | `explain-context` | Explains a domain from the ground up so you can work in it      | by you               |
+| `grill-me`        | Resolves a decision tree through one-question-at-a-time grilling | by you or workflows  |
 | `design`          | Iterates a design doc in annotated rounds until it's settled    | by you               |
+| `design-v2`       | Composes research, grill-me, DDD, and an implementation handoff | by you               |
 | `implement`       | Builds a settled design in chunks, verified once at the end     | by you               |
+| `implement-v2`    | Builds a v2 spec with types first and cost-aware TDD             | by you               |
+| `review`          | Reviews finished work in a fresh background-agent context       | by you               |
 | `ship`            | Commits, writes the PR, authors the verify spec, opens a draft  | by you               |
 | `ddd`             | The domain-modeling standard and code shape rules               | loaded by the others |
 | `vim-diff-tour`   | Turns a diff or PR into an ordered Neovim quickfix reading tour | by you               |
 | `babysit`         | Monitors asynchronous work at a deterministic cadence           | by you               |
 | `investigate`     | Diagnoses behavior from runtime evidence and code                | automatically        |
 
-The loop: `explain-context` (if the domain is unfamiliar) → `design` → `implement` → `ship`.
-`ddd` is a reference bundle the other three load; there's no reason to invoke it directly.
+The loop: `explain-context` (if the domain is unfamiliar) → `design` → `implement` → `review` →
+`ship`. The trial loop substitutes `design-v2` → `implement-v2`: the interview is the design review
+surface, and the result is either a same-context patch brief or an implementer specification rather
+than an iterative draft.
+`grill-me` is the small reusable interrogation primitive inside `design-v2`, and can also be invoked
+alone for plans and decisions that do not need a software specification.
+`ddd` is a reference bundle the design, implementation, and shipping skills load; there's no
+reason to invoke it directly.
 `vim-diff-tour` sits outside the loop — it's for reading someone else's change, not making one.
 `babysit` also sits outside the loop — it watches long-running work through a terminal outcome.
 `investigate` sits outside the loop too — it explains observed behavior without changing it.

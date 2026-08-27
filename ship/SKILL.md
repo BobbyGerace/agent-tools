@@ -125,6 +125,16 @@ section must stand on its own from the diff plus the PR text. Never reference a 
 scratch file, or a tool the reviewer doesn't have — a pointer they can't follow is worse than
 nothing.
 
+Include relevant, reviewer-accessible source links in **Additional Context**. Look for the ticket
+when there is one, plus any Notion spec, Figma design, public document, discussion, or other
+stable URL that materially explains the change. Prefer links already present in user-provided
+context, the branch or commit history, an existing PR body, or committed repository material;
+do not guess URLs. Use descriptive link text and omit links that the PR's reviewers cannot open.
+
+Do **not** search personal uncommitted planning or design files for links, summarize those files
+into the PR, or link to them. Untracked files and planning/design changes outside the committed
+PR diff are private working material unless the user explicitly provides a public URL from them.
+
 **Short wins.** Anything derivable from the diff stays out: class names, call sites, config
 keys, file-by-file mechanics, test commands. A good hand-written PR is about half the length
 of the exhaustive first draft. Aim for something skimmed in under a minute.
@@ -132,9 +142,10 @@ of the exhaustive first draft. Aim for something skimmed in under a minute.
 - **Problem** — the user-facing or system problem being solved. The _why_, not the what.
 - **Implementation** — the shape of the approach at altitude: the key pieces and how they fit.
   The reviewer gets mechanics from the diff; give them the map.
-- **Additional Context** — what the diff can't show: gotchas, surprises, deliberate
-  trade-offs, the risky parts, decisions that look wrong but aren't. If a sentence doesn't
-  earn its place in one of these four sections, it belongs in a code comment instead.
+- **Additional Context** — relevant source links, then what the diff can't show: gotchas,
+  surprises, deliberate trade-offs, the risky parts, decisions that look wrong but aren't. If a
+  sentence doesn't earn its place in one of these four sections, it belongs in a code comment
+  instead.
 - **Monitoring & Verification** — below. Required.
 
 ## Step 4: Monitoring & Verification
@@ -404,5 +415,6 @@ Do **not** treat a clean automated domain review as evidence the `ddd` rules wer
 - Push or open a PR without being asked.
 - Omit `--draft`, or publish, or merge.
 - Reference local tooling or paths in the PR body.
+- Mine personal uncommitted planning or design files for PR content or links.
 - Ship without the Monitoring & Verification section.
 - Run anything that queries prod.

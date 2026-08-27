@@ -4,7 +4,7 @@
 
 SHELL := /bin/bash
 DENYLIST := .check-public-private
-SKILLS := explain-context design implement ship ddd vim-diff-tour investigate
+SKILLS := explain-context grill-me design design-v2 implement implement-v2 review ship ddd vim-diff-tour babysit investigate
 CLAUDE_SKILLS := $(HOME)/.claude/skills
 BIN := $(HOME)/.local/bin
 REPO := $(shell git rev-parse --show-toplevel)
