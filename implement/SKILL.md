@@ -41,11 +41,21 @@ with `gtr`, never `git worktree`, and continue there. Preserve unrelated changes
 directly on the default branch.
 
 Discover build, format, lint, code-generation, and test commands from CI, repository instructions,
-and manifests. Discover the narrowest supported test filters and how infrastructure-backed tests are
-started. Do not assume commands from another repository.
+and manifests. Before editing, establish the repository's feedback ladder: semantic navigation and
+rename tools; the cheapest valid compile or typecheck target; narrow test filters; analyzer or
+checked-build commands; and the broad final-verification commands. Learn their expected cost from
+repository guidance or measure it on first use, then use the cheapest tier that answers the current
+question. A repository instruction that selects a build wrapper governs which command is valid; it
+does not make every command exposed by that wrapper appropriate for the inner loop. Discover how
+infrastructure-backed tests are started. Do not assume commands or costs from another repository.
 
-Before changing a signature, find all callers, including positional calls and direct construction in
-test projects. Change declarations and affected callers together.
+Use semantic tooling and search for code discovery before compiling: find all callers, positional
+calls, direct construction in tests, references affected by a rename, and likely symbol or namespace
+collisions. Change declarations and affected callers together, and apply supported semantic renames
+instead of relying on partial textual replacement. Treat compiler and analyzer diagnostics as
+validation and as evidence of cases discovery missed, not as the primary way to enumerate the next
+caller, reference, or collision. When a diagnostic does reveal a class of miss, search for and fix
+the whole class before rerunning the relevant check.
 
 ## Execution slices
 
