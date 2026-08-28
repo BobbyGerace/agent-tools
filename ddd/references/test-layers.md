@@ -36,6 +36,12 @@ that isn't what you're changing, the count is the finding rather than the plan. 
 change touches is a claim about its risk, so make it deliberately: filling all six for a
 link-target fix means noticing that you filled all six.
 
+**The default integration-test count is zero.** An infrastructure-backed test earns its place only
+by naming a material claim about a real boundary that pure tests and existing coverage cannot prove.
+Do not allocate one per function, handler, repository, or implementation slice. Happy-path domain
+behavior belongs at the pure seam; repeat it through infrastructure only when the composition itself
+is the claim under test.
+
 **Spend the budget at the boundary.** Layers 1 and 2 are the cheap ones — no fixtures, no
 database, no captured payload — which is exactly why over-testing collects there, as a third pure
 case that restates the second. The defects that actually reach production are in layers 3, 4, and
@@ -273,6 +279,9 @@ it is the *only* place where asserting on an interaction is the right call.
 ### Layer 6 — end-to-end
 
 Real route registration, DI, database, and provider adapter substitutes. Deliberately few.
+
+Use at most one happy-path smoke per new externally visible flow, and none when an existing test
+already proves the changed composition. This is a ceiling, not an entitlement to add a test.
 
 **Assert customer-visible outcomes and durable state — not only method calls.** An end-to-end
 test that verifies a service was invoked is a shell-wiring test wearing an expensive costume.

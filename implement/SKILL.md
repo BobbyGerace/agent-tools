@@ -1,438 +1,164 @@
 ---
 name: implement
-description: Explicit invocation only. Use only when the user names `$implement`; never activate it by inferring intent from a request to implement, build, change code, or execute a task list. Executes a settled design in a worktree, verifies it, and leaves the work uncommitted for review.
+description: Explicit invocation only. Use only when the user names `$implement`. Builds a settled design patch brief or specification by establishing needed domain shapes, developing behavior test-first with cost-aware execution cadence, and verifying once at the end.
 ---
 
 # Implement
 
-Take a settled design and build it. No separate planning pass — if the design doc's task list
-is concrete, an agent with the file open produces the right edit without a transcribed edit
-packet first.
+Build a settled `design` patch brief or specification without a separate planning or design pass.
+Establish any needed domain vocabulary first, then develop behavior test-first. Leave the finished
+work uncommitted for review; `ship` owns commits and publication.
 
-Announce at start: "I'm using implement to build <subject>."
+Announce at start: "I'm using implement to build <subject> from the settled handoff."
 
-Load `ddd` before writing domain code — C# or TypeScript; rules 1, 9, and 10 apply to a
-frontend unchanged.
+Load `ddd` before writing code and use its test-layer reference to interpret the specification's test
+table.
 
-## Input
+## Preconditions
 
-```
-implement ~/designs/<topic>.md
-```
+Accept either a specification path or the settled patch brief in the current conversation. A patch
+brief is intentionally same-context; if neither it nor a specification is available, stop rather
+than reconstructing one from a vague request.
 
-The design doc's `## Tasks` section is the task list, and the doc is the context — that's why
-this can start in a fresh session with the full budget for the work.
+For a specification, read the whole file, retrieve every required `## Context` artifact, and map each
+`B` behavior to its `T` tests and execution slice. For a patch, treat the brief as one slice and map
+its adjustment to the named tests and verification. The handoff is authoritative, but verify current
+symbols, callers, and repository conventions before editing because the code may have moved.
 
-Read the whole document before planning chunks. When it has a `## Context` section, retrieve each
-linked artifact or identified record that bears on implementation before writing code: tickets,
-exact design frames, conversation threads, research, recordings, dashboards, or case identifiers.
-Use the available connector or read-only data path rather than relying on the link label. If a
-required reference is inaccessible and the design body does not preserve the necessary fact, ask
-for access or the smallest missing excerpt; do not guess. Context references inform the work, but
-the settled decisions in the design remain authoritative.
+Do not ask the user to approve the specification or print a new test budget. The grill already made
+those decisions. A settled `design` handoff is explicit approval to implement every database schema,
+migration, backfill, endpoint, message, and compatibility change it specifies; repository or
+personal rules requiring approval for those changes are satisfied by that recorded review. Do not
+pause for duplicate approval. Stop only when implementation would require a missing or contradictory
+product, domain, persistence, contract, or architectural choice, or a material database or contract
+change not approved in the handoff; report the exact gap instead of silently designing around it.
 
-**No design doc?** Then the one thing the old planning phase guaranteed is missing: blocking
-questions asked before any code exists. So ask them first. Each question needs the decision,
-the options, a recommendation, and why. Don't start writing until the answers that change the
-shape of the work are in.
+## Workspace
 
-## Step 1: Where am I working
+Detect the branch and repository root. Work in the current checkout only when it is already a
+worktree on a non-default branch. From the main checkout on the default branch, create the worktree
+with `gtr`, never `git worktree`, and continue there. Preserve unrelated changes and never work
+directly on the default branch.
 
-Detect, don't ask:
+Discover build, format, lint, code-generation, and test commands from CI, repository instructions,
+and manifests. Discover the narrowest supported test filters and how infrastructure-backed tests are
+started. Do not assume commands from another repository.
 
-- **Already in a worktree on a non-default branch** → work here. This covers arriving via any
-  personal setup script.
-- **In the main checkout on the default branch** → create a worktree (`git worktree add`, or
-  whatever wrapper this setup uses) and move into it.
-- **Never work directly on the default branch.**
+Before changing a signature, find all callers, including positional calls and direct construction in
+test projects. Change declarations and affected callers together.
 
-One `git branch --show-current` and `git rev-parse --show-toplevel` answers this. Don't open a
-multiple-choice prompt about it.
+## Execution slices
 
-## Step 2: The chunk loop
+Implement the specification's one or two slices in order, or a patch brief as one slice. Announce a
+compact summary when a slice begins and ends, but do not ask for sign-off between them. Do not commit
+between slices.
 
-Each chunk is at most a few hundred lines.
+### 1. Establish domain shapes
 
-```
-write the chunk → next chunk → … → verification phase at the end
-```
+When the handoff calls for new domain vocabulary, write only the structural shapes the tests and
+implementation need:
 
-**Don't build or run the suite per chunk.** It is the single biggest waste in this loop: a
-`dotnet build -p:EnforceCodeStyle=true` plus `dotnet test` per chunk multiplies the slowest part
-of the work by the number of chunks. And it produces false failures — chunk 2 routinely adds the
-caller for the signature chunk 1 introduced, so an intermediate state legitimately doesn't
-compile.
+- opaque identifiers, values with units, unions, and result/failure cases;
+- decision inputs and outputs, effect records, and stable public interfaces;
+- persistence declarations required for boundary tests.
 
-What each chunk _does_ get: reread what you wrote, and if you added a focused test that runs in
-seconds, run that one test. Nothing that touches the whole solution.
+For a patch that changes no domain shape, skip this phase. Otherwise enforce construction-time
+invariants that belong to the type and compile or typecheck the narrowest relevant target. “Types
+first” is not permission to implement behavior: method bodies remain absent, stubbed, or minimal
+until a failing behavioral test requires them.
 
-**No commits.** Leave everything uncommitted unless explicitly told otherwise — the user reviews
-the whole change at the end, and intermediate commits make that final `git diff` harder to
-read. `ship` does the committing.
+### 2. Develop behavior test-first
 
-**No sign-off between chunks.** Proceed automatically with a one-line summary:
+Test-first governs evidence order, not process-startup count. Use the specification's `Cost` column
+when present; for a patch brief, classify each named test from whether it needs a database, server,
+provider, browser, or similarly expensive fixture.
 
-```
-Chunk 3 complete. Board now archives on `a`. Moving to chunk 4...
-```
+Before writing an infrastructure-backed test, identify the material boundary claim it proves that no
+pure test or existing test can establish. If there is no such claim, omit the test and report the
+deviation from the handoff. Do not replay pure domain cases through infrastructure, and do not create
+one integration test per function, handler, or slice. Failure cases belong here only when the failure
+is created by mapping, translation, binding, authorization, transactions, concurrency, replay, or
+another real boundary behavior.
 
-Have a rough chunk breakdown up front; adjusting it as you go is fine and expected.
+For **fast tests** that execute in seconds without infrastructure:
 
-**Print the test table with it.** Same three-column format the design doc uses — layer, case,
-expected, one row per test, count on the last line — before any test is written. The user strikes
-the rows they don't want; what survives is the budget. If the design already has the table, print
-that one and note what you'd change rather than inventing a second. This is the whole
-intervention: a test list is only a budget if someone can see the number and argue with it, and
-after the tests exist nobody re-litigates them.
-
-## Step 3: Before changing any signature
-
-Find **all** callers — not just one level up. Integration test projects instantiate services
-directly with `new ServiceName(...)`, per-project builds miss them, and it surfaces in CI
-instead.
-
-- A Roslyn-backed find-references tool for C# when the setup has one; `grep -rn "MethodName(" src/`
-  otherwise.
-- Check **positional argument** usage specifically. Adding a parameter in the middle compiles
-  fine at some call sites and silently changes meaning at others.
-- Fix affected callers in the same chunk, or place the new parameter so nothing shifts.
-
-## Step 4: Verify the work
-
-Once the chunks are written, not between them. Validation is broader than tests — pick what
-actually proves the feature works:
-
-| Method               | Fits                                                       |
-| -------------------- | ---------------------------------------------------------- |
-| **Run it and check** | CLI tools, scripts, endpoints — execute it with real input |
-| **Query the state**  | migrations, mutations, generated files                     |
-| **Visual check**     | UI work                                                    |
-| **Existing suite**   | refactors and bug fixes with coverage                      |
-| **New tests**        | real business logic, edge cases, transformations           |
-
-**Build success is not verification.** A compiling feature that was never executed is
-unverified, and saying otherwise is the thing not to do. But the reverse is also true: running
-the feature is not a substitute for the required checks below. Do both in one end-of-work
-verification phase; if either exposes a defect, fix it and rerun the affected checks.
-
-**Neither is a test whose fixtures you wrote by reading source.** A provider's code gives you its
-shape, never that your request works or that real rows look like your fixture. So where the design
-says to call the thing — a live request, a captured payload, a query against real data — call it.
-If you can't reach it, **stop and ask them to run it**; shipping the inference instead needs their
-sign-off out loud, not a line in the deviation list. And if the change renders something, look at
-it rendered.
-
-### Required checks — after the last chunk
-
-When the work is done, these must pass:
-
-1. **It compiles** — build or typecheck, whichever the language has.
-2. **Format and lint are clean.**
-3. **The tests pass** — the existing suite for what you touched, plus anything you wrote.
-
-**Use one verification phase, not one invocation per chunk.** The cost of the alternative is
-the whole point: these are the slowest commands in the loop, and running them N times to learn
-the same thing N times is where an implementation session quietly loses its afternoon. A failed
-check starts a diagnose-fix-rerun cycle inside that phase; it does not make an incomplete tree
-the user's problem.
-
-What that trades away is attribution — a failure at the end doesn't say which chunk caused it.
-That's recoverable and cheap: the chunk summaries say what each one touched, and everything is
-still uncommitted, so `git diff` plus the summaries narrows it in one pass. Fail-fast per chunk
-would only be worth its cost if the checks were fast; on a large solution they are not.
-
-### Don't start a build while another one is running
-
-If you run agents building in the background while you test, two builds colliding is the normal
-failure, not a rare one. Two uncapped .NET builds each grab roughly one MSBuild node per core,
-so they oversubscribe the box by 2× and can push it into swap. Check first:
-
-```bash
-cores=$(sysctl -n hw.ncpu)
-active=$(ps -Ao ppid=,command= | awk '$1 != 1 && /MSBuild\.dll/' | wc -l | tr -d ' ')
-load=$(sysctl -n vm.loadavg | awk '{print $2}')
-echo "active MSBuild nodes: $active   load1: $load / $cores cores"
+```text
+write one meaningful failing test
+→ run the narrowest target and observe the expected red
+→ implement the behavior
+→ rerun green
+→ refactor under green
 ```
 
-- **`active` > 0** → another build is live. Say which and **ask** whether to wait or proceed.
-- **`load1` > cores** → the box is saturated by something. Same treatment.
-- Otherwise → go.
+For **infrastructure-backed tests**, batch the cases for one coherent seam:
 
-**Ask; don't loop waiting.** A poll that blocks until the box is quiet wedges the session when
-it never gets quiet. Report and let the user decide.
+```text
+write the repository/endpoint/migration/provider batch
+→ start or reuse its infrastructure once
+→ run the narrowest supported target once and observe the batch red
+→ implement the complete seam
+→ rerun that target until green
+```
 
-Two traps that make the naive versions of this check useless:
+Do not start a database, server, browser, or provider fixture once per assertion. Do not run the full
+integration suite between behaviors or slices. If the repository cannot select a narrow target,
+batch more aggressively rather than repeatedly paying for the whole suite.
 
-- **`ppid != 1` is load-bearing.** Finished builds leave MSBuild nodes idling ~15 minutes,
-  reparented to PID 1. A plain `pgrep -f MSBuild.dll` counts those too, and the idle leftovers
-  routinely outnumber the live ones several times over — so the naive count is wrong roughly
-  all the time.
-- **`pgrep -f` matches your own wrapper.** The agent's own shell command line contains whatever
-  pattern you searched for, so `pgrep -f 'dotnet build|vitest'` reliably finds itself. Use
-  `ps` + `awk` on a pattern that can't appear in your own invocation, or the load average.
+Use at most one happy-path end-to-end smoke test per new externally visible flow. Add none when an
+existing smoke already proves routing, dependency wiring, persistence, and the observable outcome.
 
-### Cap your own build's parallelism
+A red observation must be real, not inferred. It is sufficient for the batch failures collectively
+to demonstrate the missing seam; every assertion need not fail independently. A new behavioral test
+that passes immediately is a finding: determine whether behavior already exists, the seam is wrong,
+or the assertion is weak before proceeding.
 
-Pass `-m:N` on `dotnet build` and `dotnet test`, with N around 40% of the box's cores — chosen
-so two concurrent builds fit inside the core count instead of oversubscribing to double it.
-Individual builds get somewhat slower; concurrent builds get dramatically less awful, which is
-the right trade when something is usually building in another session.
+Tests assert outputs, observable state, and boundary fidelity rather than mock call sequences. Mock
+external boundaries, not the unit's own collaborators. Prefer one faithful database round trip,
+captured provider payload, or replay test over several cheap tests that cannot detect the production
+failure.
 
-Two things this does **not** cover, so don't claim it does:
+### 3. Wire boundaries after the core
 
-- **A repo's own build wrapper may ignore it.** A Cake/Make/script target that constructs its
-  own MSBuild invocation without setting `MaxCpuCount` runs uncapped no matter what you passed.
-  Check whether the aggregate target honours `-m` before claiming the cap applied; changing it
-  means changing the repo, which is a team conversation rather than something to slip into a
-  personal skill.
-- **`MSBUILDNODECOUNT` is not a thing.** `MSBuildNodeCount` is a reserved MSBuild _property_
-  reflecting `-maxcpucount`; there is no environment variable of that name that sets
-  parallelism. Exporting it looks like a fix and isn't. `-m:N` is the form that works.
-  (`MSBUILDDISABLENODEREUSE=1` _is_ real, and belongs in a shell profile, not here.)
+Load facts, call the pure decision, commit state once, then execute effects after commit, following
+the settled transaction and recovery model. Map rows, wire models, and provider payloads at the edge;
+do not admit their representations into the domain for convenience.
 
-**Never run `dotnet build-server shutdown` or reap MSBuild nodes from this skill.** VBCSCompiler
-is shared across sessions — shutting it down mid-build breaks another session's build. Fine to
-run by hand on an idle box; wrong as an automatic step.
+Develop persistence mapping, serialization, migrations, adapters, and endpoint wiring at their
+specified test seams using the cost-aware cadence above. Run code generation when the repository
+requires it.
 
-### Discovering the commands
+## Verification
 
-**Discover them; never assume.** These repos disagree with each other, and guessing produces a
-green light that means nothing. In descending order of authority:
+After the final slice, perform one broad verification phase. Run the repository-defined equivalents
+of:
 
-1. **CI workflows** — `.github/workflows/*.yml`. This is the definition of correct: whatever
-   the `pr-*` jobs run is what has to pass, stated by the repo itself.
-2. **The repo's `AGENTS.md` / `CLAUDE.md`**, which sometimes names the commands directly.
-3. **Manifest scripts** — `package.json` scripts called `check`, `lint`, `typecheck`, `test`,
-   `format`; a `Makefile`/`justfile` target; a `scripts/` directory of `check-*` files.
-4. **Toolchain default**, only when the first three say nothing: `dotnet build` + `dotnet test`,
-   `tsc --noEmit`, and so on.
+1. build or typecheck;
+2. format and lint;
+3. affected test suites, including the infrastructure-backed batches;
+4. required code generation and a clean generated diff;
+5. actual execution, state inspection, or visual inspection appropriate to the feature.
 
-Prefer a single repo-defined aggregate when one exists — a `check` script that chains
-format + lint + typecheck + test is the repo telling you exactly what it wants, and it can't
-drift from CI the way a hand-assembled list can.
+Build success alone is not verification. Where the specification names a production signal, confirm
+that the implementation emits or preserves it. If a required real boundary cannot be reached, ask
+the user for the smallest external verification rather than claiming a source-derived fixture proves
+it.
 
-Assume nothing carries over between repos, including two repos in the same language and the
-same org. The specific traps that make guessing expensive:
+Fix ordinary local failures autonomously and rerun the narrowest affected check before repeating the
+broad phase. Stop only for a changed design decision, missing authority/access, destructive or
+out-of-scope work, inseparable pre-existing damage, or repeated approaches that yield no credible
+next step.
 
-- **A bare compile can skip the analyzers CI runs.** Style and unused-import rules are often
-  gated behind a flag or a separate target, so the build passes locally and fails CI on
-  something the local invocation never checked. Find the flag in the workflow.
-- **The formatter is per-repo and not inferable from the language.** Reaching for the one that
-  happens to be installed reformats files against the repo's own convention and buries the real
-  change in noise.
-- **Codegen may be a required step.** Some repos need a schema/contract regeneration target run
-  whenever DTOs, messages, or entities change; skipping it fails CI with a diff, not a
-  compile error.
-- **A solution plus a frontend needs both halves run.** A green `dotnet test` says nothing about
-  the `www/` bundle beside it.
+For commands likely to exceed five minutes, follow the repository's detached tmux convention and
+poll without blocking the conversation for more than a minute. Before starting resource-heavy
+builds, check for competing builds and ask whether to wait when the machine is already saturated.
+Use repository-supported parallelism controls; never terminate shared build servers or other
+sessions' processes.
 
-**Record what you discovered** in the first chunk's summary, so later chunks reuse it instead
-of re-deriving it, and so a wrong guess is visible rather than silent.
-
-**Record the tree they passed on.** These checks are a function of the working tree, so a green
-result is only a fact about one exact state of it. Print a fingerprint alongside the result:
+Record the final commands, results, and a working-tree fingerprint:
 
 ```bash
 { git rev-parse HEAD; git status --porcelain; git diff HEAD; } | shasum -a 1 | cut -c1-12
 ```
 
-`ship` compares against this to avoid re-running everything a minute later on an identical
-tree. Verified behaviour: it changes when a tracked file is edited or an untracked file appears,
-returns to its previous value on revert, and **deliberately ignores gitignored files** — those
-aren't pushed and CI never sees them, so they can't invalidate a result. It does not capture the
-_contents_ of untracked files, only their paths.
-
-**If the design named a signal for prod verification, make sure it actually lands.** The design's
-`## Test plan` may say a log event or metric must exist so `ship` can verify the change in prod.
-If it turns out that signal can't be emitted where the design assumed — wrong layer, no access to
-the field, the event fires on a path that doesn't run — **say so now, in the chunk summary.**
-Discovering it at `ship` means shipping without verification or going back to instrument.
-
-**A failing check prevents completion, not continued implementation.** Build, typecheck,
-format, lint, codegen, and test failures are normal implementation feedback when they expose a
-local defect consistent with the settled design. Inspect the complete output, fix all related
-occurrences, and rerun the affected check; do not stop merely because the first written version
-does not compile or a changed test fails. If a test was already failing on the base commit, say
-so explicitly and carry on; a pre-existing failure is context, not permission.
-
-If discovery genuinely turns up nothing runnable, **ask** rather than inventing a command.
-
-### What makes a test worth writing
-
-Each proposed test gets a one-line reason — the `Expected` clause of its row in the table, not a
-second paragraph beside it. That requirement exists to force articulating value instead of writing
-tests reflexively. If the reason is hard to write, that is the finding.
-
-**Which layers a change touches is a claim about its risk**, so the count is a finding as much as
-a plan: an ordinary change is one to three tests across one or two layers, and the budget belongs
-at the boundary rather than in a third pure case. See `ddd`'s *Eligibility, not obligation*.
-
-- **High value** — guards an edge case that silently returns null and crashes downstream;
-  tests a business rule with several conditions; covers a failure or retry edge that
-  integration tests can't reach; states an invariant that must hold across all inputs.
-- **Low value** — `constructor sets properties` (the type system has it),
-  `calls repository.save once` (asserts on a mock, breaks on any refactor),
-  `maps field A to field B`, `returns correct type`, and **a hand-built DTO asserted field by
-  field** — that tests your own constructor, and proves nothing about model binding or the
-  payload the sender actually transmits.
-- **Mock external boundaries** (HTTP, DB, filesystem, third parties), not the unit's own
-  collaborators. If `OrderService` calls `PriceCalculator`, test them together.
-
-**Assert on output or observable state, not on interactions.** The narrow exception is a
-sequencing guarantee with no observable proxy — and before reaching for it, check whether a
-replay/interleaving test (`ddd` layer 5) asks the same question better, as behavior under an
-adverse ordering rather than as a mock call sequence.
-
-**For a state machine, the transition table is the test budget** — one test per row that
-matters, not one per cell of the state × event grid. See `ddd`'s rule 11.
-
-Prefer 1–3 high-value tests over a test per function. **And a test you can't attach a
-user-visible failure to leaves with your change** when you're already in that file — not a
-mandate to sweep the suite, just the ones in reach.
-
-## Step 5: When something's wrong
-
-Classify the failure before deciding whether to stop.
-
-**Continue autonomously** when the next step is a credible, in-scope correction that preserves
-the settled design: missing imports, type errors, formatting or lint findings, stale generated
-files, incorrect assertions, and the same mechanical change surfacing at additional call sites
-or files. Read the complete diagnostic, fix all related occurrences, and rerun the narrowest
-check that proves the correction before resuming broader verification.
-
-Do not count compiler-guided cleanup across additional diagnostics, files, or call sites as
-repeated failed approaches. A retry limit is useful only when substantially the same proposed
-fix keeps failing without producing new information; it is not a limit on ordinary debugging.
-
-**Stop and ask** only when continuing requires one of these:
-
-- changing a settled design decision or choosing between materially different product shapes;
-- authority, credentials, production access, or required external verification that is unavailable;
-- destructive, unsafe, or materially out-of-scope work;
-- untangling pre-existing repository damage that cannot be safely isolated; or
-- another materially different approach after multiple credible approaches have failed and no
-  evidence-backed next step remains.
-
-Report a genuine stop as:
-
-```
-## Chunk N failed: <name>
-Error: <message>
-Files modified before failure: <list>
-Why this needs a decision: <design, authority, external dependency, safety, or impasse>
-Options: <specific reviewable choices, with a recommendation>
-```
-
-If the design turns out to be wrong rather than the code, say so and stop before building more
-work on it. Do not use the failure template for routine implementation feedback that can be
-resolved within the agreed scope.
-
-When a genuine impasse remains after the safe, evidence-backed options are exhausted, say so
-plainly. Bad work is worse than no work.
-
-## Step 6: Self-review before reporting done
-
-Two passes, in this order. The order matters — there's no point critiquing the quality of the
-wrong feature.
-
-### Pass 1: did I build what was asked?
-
-Read the actual code against the task list, not against memory of what was written. **Don't
-trust the summary in your own head** — finishing quickly is a signal to check harder, not a
-sign of success.
-
-- **Missing:** anything in the task list not actually implemented? Anything claimed but
-  stubbed?
-- **Extra:** anything built that wasn't requested? Any speculative abstraction, any
-  "while I was in there"?
-- **Misread:** did any task get solved in a way the design didn't intend?
-
-Over- and under-building is the most common failure. Check both directions explicitly.
-
-### Pass 2: is it good?
-
-- Names say what things do, not how they work.
-- `ddd`'s **Code shape** section — single responsibility, method length as a smell, named
-  helpers over inline blocks, and where to stop.
-- `ddd`'s twelve rules, for anything with a state space, a result type, money, or time.
-- `ddd`'s **Boundaries** rules (9–10) for anything crossing an edge: bare-string identifiers, a
-  row or provider payload used directly as the domain model.
-- **Read the types you changed as a set** — `ddd`'s *Reviewing without reading every line*.
-- No unused usings (CI treats IDE0005 as an error).
-- Tests assert behavior, not mock interactions — and any test you can't attach a user-visible
-  failure to shouldn't be in the diff.
-
-## Step 7: Report
-
-```
-## Implementation complete
-
-**Design:** ~/designs/<topic>.md
-**Checks:** <the commands run, and where they came from> → PASS, tree `<fingerprint>`
-**Verification:** <command> → PASS/FAIL, with the actual output
-**Files created:** <list with purpose>
-**Files modified:** <list with what changed>
-
-**Deviations from the design:**
-
-- <task or decision it diverges from> — <what was done instead, and why>
-- …
-
-or `None — built as designed.`
-
-**Left undone:** <anything skipped, and why — or None>
-**Manual checks:** <what only a human can confirm, or None>
-
-Uncommitted, ready for review. `ship` when you want the PR.
-```
-
-**"Manual checks" is for what only a human can confirm** — a judgment call, a production
-permission, an aesthetic. It is not a parking spot for verification you could have done yourself.
-
-### Deviations
-
-The design doc is the reference, so anything the implementation does differently is a thing
-the user needs to review it as a _decision_, not discover later as a surprise in the diff. It counts
-as a deviation if you'd have to explain it to someone reading the design alongside the code:
-
-- a different approach to a task than the one the design named
-- a type, method, column, or endpoint named differently than the design specified
-- a signature that changed shape, or a parameter the design didn't anticipate
-- an extra file, class, or dependency the design didn't call for
-- a task done in a different place than the design put it
-- a design decision that turned out to be wrong, unbuildable, or already done
-
-**Cite what it diverges from.** "Used `IReadOnlyList` instead of the design's `List`" is
-reviewable; "made some type changes" is not. Point at the task or decision by name.
-
-**`None — built as designed.` is a real answer and often the right one.** Don't manufacture
-deviations to fill the section — an invented list is worse than an empty one, because it trains
-the reader to skim past the real ones.
-
-**Deviations and "Left undone" are different.** Deviated = built, differently. Undone = not
-built. Something can't be both; pick the one that's true.
-
-**Prefer raising a deviation when it happens.** If a chunk forces a real departure from the
-design — not a naming nit, an actual change of approach — say so in that chunk's one-line
-summary as well. The report is the backstop, not the first notice; a design that was wrong is
-usually worth knowing before three more chunks are built on it.
-
-Report faithfully throughout. Summarize failures you corrected when they materially affect the
-review, and show unresolved failure output when asking for a decision. If a chunk was skipped,
-say which and why. Don't hedge on things that are actually done and verified.
-
-## Subagents
-
-Default to single-agent sequential work — chunks usually build on each other, and the
-coordination overhead isn't free.
-
-Reach for a subagent per chunk only for **wide mechanical fan-out**: the same transformation
-across many independent files, where one agent would accumulate all of it in context for no
-benefit. Never run two implementation subagents in parallel on overlapping files.
-
-## Never
-
-- Work on `main` without explicit consent.
-- Commit, push, or open a PR from this skill.
-- Change a signature without finding every caller first.
-- Report "done" on something that only compiles.
+Summarize completed behavior by `B` IDs, tests by `T` IDs, deviations from the specification, and
+anything requiring human or production verification. Leave all changes uncommitted.

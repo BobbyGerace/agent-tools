@@ -153,11 +153,11 @@ of the exhaustive first draft. Aim for something skimmed in under a minute.
 No PR is complete without it, and it must be **fully self-contained** — every query written
 out inline, in the PR body. Never point at `verify-spec`, `.scratch/`, or any local tooling.
 
-**Start from the design.** Its `## Test plan` should already name the signal that proves question
-1, and any instrumentation needed for it should be in the diff. If the design named a signal and
-it isn't there, that's a gap worth raising before opening the PR. If there was no design doc, work
-it out here — but expect to find that the needed log line doesn't exist, which is the reason the
-question belongs upstream.
+**Start from the design.** Its `## Production verification` section should already name the signal
+that proves question 1, and any instrumentation needed for it should be in the diff. If the design
+named a signal and it isn't there, that's a gap worth raising before opening the PR. If the handoff
+has no production-verification section, work it out here — but expect to find that the needed log
+line doesn't exist, which is the reason the question belongs upstream.
 
 It must answer **both** of these, always:
 

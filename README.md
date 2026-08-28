@@ -12,7 +12,7 @@ Symlink each one into `~/.claude/skills/`:
 
 ```bash
 REPO=$(pwd)                       # wherever you cloned this
-for s in explain-context grill-me design design-v2 implement implement-v2 review ship ddd vim-diff-tour babysit investigate; do
+for s in explain-context grill-me design implement review ship ddd vim-diff-tour babysit investigate; do
   ln -s "$REPO/$s" ~/.claude/skills/"$s"
 done
 ```
@@ -21,10 +21,8 @@ done
 | ----------------- | --------------------------------------------------------------- | -------------------- |
 | `explain-context` | Explains a domain from the ground up so you can work in it      | by you               |
 | `grill-me`        | Resolves a decision tree through one-question-at-a-time grilling | by you or workflows  |
-| `design`          | Iterates a design doc in annotated rounds until it's settled    | by you               |
-| `design-v2`       | Composes research, grill-me, DDD, and an implementation handoff | by you               |
-| `implement`       | Builds a settled design in chunks, verified once at the end     | by you               |
-| `implement-v2`    | Builds a v2 spec with types first and cost-aware TDD             | by you               |
+| `design`          | Researches and grills toward a complete implementation handoff  | by you               |
+| `implement`       | Builds a handoff with types first and cost-aware TDD             | by you               |
 | `review`          | Reviews finished work in a fresh background-agent context       | by you               |
 | `ship`            | Commits, writes the PR, authors the verify spec, opens a draft  | by you               |
 | `ddd`             | The domain-modeling standard and code shape rules               | loaded by the others |
@@ -33,10 +31,9 @@ done
 | `investigate`     | Diagnoses behavior from runtime evidence and code                | automatically        |
 
 The loop: `explain-context` (if the domain is unfamiliar) → `design` → `implement` → `review` →
-`ship`. The trial loop substitutes `design-v2` → `implement-v2`: the interview is the design review
-surface, and the result is either a same-context patch brief or an implementer specification rather
-than an iterative draft.
-`grill-me` is the small reusable interrogation primitive inside `design-v2`, and can also be invoked
+`ship`. The design interview is the human review surface, and its result is either a same-context
+patch brief or an implementer specification.
+`grill-me` is the small reusable interrogation primitive inside `design`, and can also be invoked
 alone for plans and decisions that do not need a software specification.
 `ddd` is a reference bundle the design, implementation, and shipping skills load; there's no
 reason to invoke it directly.
@@ -44,8 +41,8 @@ reason to invoke it directly.
 `babysit` also sits outside the loop — it watches long-running work through a terminal outcome.
 `investigate` sits outside the loop too — it explains observed behavior without changing it.
 
-`design` keeps its docs in `~/designs/` as a git repo, one file per design, one commit per
-round. Create it before first use:
+`design` keeps specifications in `~/designs/` as a git repo, one file and one final commit per
+design. Create it before first use:
 
 ```bash
 git init ~/designs

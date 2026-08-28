@@ -1,4 +1,4 @@
-# Implementer-facing specification
+# Implementation specification
 
 The interview is the human review surface. This document preserves the resulting behavior, exact
 shapes, decisions, and evidence for a fresh implementation session. Write for precise execution,
@@ -97,17 +97,21 @@ decision ledger, not an interview transcript.
 
 ## Test specification
 
-Name the highest stable seams and one row per valuable test or coherent parameterized group:
+Name the highest stable seams and one row per valuable test or coherent parameterized group. Every
+infrastructure row states the boundary claim it uniquely proves:
 
-| ID | Layer | Cost | Seam | Behaviors | Expected |
-| --- | --- | --- | --- | --- | --- |
-| T1 | transition | fast | `<symbol>` | B1, B3 | `<observable result>` |
-| T2 | persistence | infrastructure | `<repository>` | B1 | `<round-trip result>` |
+| ID | Layer | Cost | Seam | Behaviors | Unique proof | Expected |
+| --- | --- | --- | --- | --- | --- | --- |
+| T1 | transition | fast | `<symbol>` | B1, B3 | — | `<observable result>` |
+| T2 | persistence | infrastructure | `<repository>` | B1 | `<claim pure tests cannot establish>` | `<round-trip result>` |
 
 Use `fast` for tests that run without infrastructure and `infrastructure` for databases, servers,
 providers, browsers, or similarly expensive fixtures. Group infrastructure cases by the narrowest
 coherent seam at which the implementer can establish one red batch and one green batch. State
-deliberate omissions and why they are safe.
+deliberate omissions and why they are safe. Zero infrastructure tests is the default when no changed
+boundary claim needs them; never allocate them per function or implementation slice. Cap end-to-end
+coverage at one happy-path smoke per new externally visible flow, and omit it when existing coverage
+already proves the composition.
 
 ## Execution slices
 
