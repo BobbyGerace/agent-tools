@@ -29,37 +29,60 @@ ask first. If the base is ambiguous, **stop and ask**.
 
 **On `main`?** Ask for a branch name, create it, move the work over.
 
-**Verify the feature works before shipping.** Not the build — the feature. Run the endpoint,
-execute the command, query the state. If it can't be verified, stop and ask how.
+**Verify the feature, not merely the build.** Reuse credible implementation evidence when it
+exists. Otherwise perform the cheapest direct exercise appropriate to the change: run the command,
+exercise the affected flow, inspect resulting state, or visually inspect the UI. Do not require a
+production deployment to prove work that can only run after merge; describe that limitation and
+make it part of Monitoring & Verification instead.
 
 ### Pre-push checks
 
-The required checks from `implement` — it compiles, format and lint are clean, the tests pass —
-must all have passed on **exactly the tree being pushed**.
+Optimize this gate for **time-to-merge**, not local reproduction of CI. Catch cheap, likely, and
+deterministic failures before publishing, then start authoritative CI promptly. The gate normally
+consists of the repository's formatter/linter, a scoped checked build or typecheck, affected tests,
+required generation or contract checks, and direct feature verification. It does not automatically
+include every repository test or the complete CI matrix.
 
-**Don't re-run them if they already passed on this tree.** `implement` usually runs in the same
-session and prints a fingerprint with its green result. Compare:
+Before an expensive command, establish its prerequisites, make orchestration fail fast with a
+trustworthy exit status, and estimate its cost. If an applicable environment skill provides a
+cheaper valid build loop, load and follow it. Prefer the narrowest check that can disprove the
+change; reserve broad or aggregate commands for cases where repository guidance requires them or
+the change's blast radius genuinely makes narrower selection unsafe.
+
+#### Reuse verification evidence
+
+Verification evidence is portable across agents, sessions, and handoffs. Trust evidence when it
+identifies the repository and tree, records the exact commands and results, and is credible enough
+to audit. `implement` records a working-tree fingerprint for this purpose. Compare it when present:
 
 ```bash
 { git rev-parse HEAD; git status --porcelain; git diff HEAD; } | shasum -a 1 | cut -c1-12
 ```
 
-- **Matches a green run from this session** → skip them and say so, naming what was run:
-  `build + lint + tests already green on <fingerprint> from implement — not re-run`. The tree is the only input; an
-  identical tree cannot produce a different result, and re-running a full test suite to learn
-  something you already know is a minute of nothing.
-- **Anything else** → run them. That includes a different fingerprint, no fingerprint recorded, a
-  fresh session, a green run you only inferred rather than saw, and any file you changed after
-  it — **including your own formatter run**. When unsure, run it: the cost of a
-  redundant run is a minute, and the cost of a skipped one is a red CI on a published PR.
+- **Matching fingerprint and green evidence** → do not re-run it. Name the checks and their source:
+  `checked build + lint + affected tests already green on <fingerprint> — not re-run`.
+- **No usable evidence** → run the local gate above. Absence of same-session history is not a
+  reason to recreate the full CI matrix.
+- **Fingerprint changed after verification** → inspect the intervening diff and invalidate only
+  evidence whose inputs or behavior could have changed. Re-run the formatter after formatting;
+  re-run the affected test target after a test-fixture correction; do not repeat unrelated frontend,
+  backend, or repository-wide checks merely because the global fingerprint changed. If impact
+  cannot be bounded confidently, broaden the relevant check rather than every check.
 
-When you do run them, check for a concurrent build first and cap your own parallelism, exactly as
-`implement` describes — the collision risk is the same whichever skill triggers the build.
-Use the commands **discovered from this repo**, not remembered from another one. `.github/workflows/*.yml` is the authority; a repo-defined aggregate script (`check`, `ci`,
-a `Makefile` target) beats a hand-assembled list because it can't drift from CI.
+Do not claim that an identical tree can never produce a different result: infrastructure-backed
+and flaky tests exist. Reuse prior evidence because repeating it is usually low-value, while CI is
+the authoritative exhaustive run—not because execution is mathematically deterministic.
 
-**Don't assume a git hook ran these for you.** Hooks are frequently disabled outright
-(`HUSKY=0` and friends), and a skipped hook is silent. None of these checks are optional.
+When you do run checks, check for a concurrent build first and cap your own parallelism, exactly as
+`implement` describes. Use commands **discovered from this repo**, not remembered from another one.
+CI and repository aggregate commands reveal what must be covered, but they are not automatically the
+right local command: select scoped repository-supported targets when they establish the same claim
+more cheaply.
+
+**Don't assume a git hook ran checks for you.** Hooks are frequently disabled and a skipped hook is
+silent. Conversely, do not manually recreate a whole hook or CI workflow merely because it will be
+skipped. Follow explicit repository or environment guidance about `--no-verify`, and deliberately
+run only the useful affected checks the hook would otherwise provide.
 
 **Only run the formatter the repo actually uses.** Don't reach for `prettier` because it's
 installed. Running the wrong formatter reformats files against the repo's own convention and

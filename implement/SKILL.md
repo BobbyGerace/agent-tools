@@ -1,18 +1,17 @@
 ---
 name: implement
-description: Explicit invocation only. Use only when the user names `$implement`. Builds a settled design patch brief or specification by establishing needed domain shapes, developing behavior test-first with cost-aware execution cadence, and verifying once at the end.
+description: Explicit invocation only. Use only when the user names `$implement`. Builds a settled design patch brief or specification by establishing needed domain shapes, implementing the behavior, and verifying once at the end.
 ---
 
 # Implement
 
 Build a settled `design` patch brief or specification without a separate planning or design pass.
-Establish any needed domain vocabulary first, then develop behavior test-first. Leave the finished
+Establish any needed domain vocabulary first, then implement the behavior. Leave the finished
 work uncommitted for review; `ship` owns commits and publication.
 
 Announce at start: "I'm using implement to build <subject> from the settled handoff."
 
-Load `ddd` before writing code and use its test-layer reference to interpret the specification's test
-table.
+Load `ddd` before writing code.
 
 ## Preconditions
 
@@ -21,11 +20,29 @@ brief is intentionally same-context; if neither it nor a specification is availa
 than reconstructing one from a vague request.
 
 For a specification, read the whole file, retrieve every required `## Context` artifact, and map each
-`B` behavior to its `T` tests and execution slice. For a patch, treat the brief as one slice and map
-its adjustment to the named tests and verification. The handoff is authoritative, but verify current
+`B` behavior to its execution slice. For a patch, treat the brief as one slice. The handoff is authoritative, but verify current
 symbols, callers, and repository conventions before editing because the code may have moved.
 
-Do not ask the user to approve the specification or print a new test budget. The grill already made
+Required context is a precondition, not optional background. If any artifact, document, design,
+recording, environment, or other source needed to implement the handoff cannot be retrieved or read,
+stop before editing and ask the user for the smallest access or material that unblocks it. Do not
+skip the source, replace it with an inference, or quietly implement the parts that remain.
+
+For UI work, search the handoff, its context, and the repository for a Figma file, frame, prototype,
+screenshot, mockup, or other authoritative image. If one exists, open and visually inspect it before
+writing code. Reading a link, node name, metadata, generated description, design-token export, or
+prose summary is not viewing the design. Inspect the rendered layout and the applicable states,
+variants, and responsive views at a useful scale. If the reference cannot be viewed, stop and ask
+for access or exported images.
+
+When no visual reference exists, proceed only if the settled handoff records that the visual design
+was discussed with the user and supplies the approved layout, hierarchy, styling direction, states,
+and responsive behavior, or records explicit permission for the implementer to improvise specified
+visual choices. Otherwise report that the handoff is incomplete and wait for the user to decide how
+to resolve it. Do not conduct a design interview, invoke `$design`, infer a new design from the
+existing implementation, or invent one from prose inside an `$implement` run.
+
+Do not ask the user to approve the specification. The grill already made
 those decisions. A settled `design` handoff is explicit approval to implement every database schema,
 migration, backfill, endpoint, message, and compatibility change it specifies; repository or
 personal rules requiring approval for those changes are satisfied by that recorded review. Do not
@@ -37,8 +54,9 @@ change not approved in the handoff; report the exact gap instead of silently des
 
 Detect the branch and repository root. Work in the current checkout only when it is already a
 worktree on a non-default branch. From the main checkout on the default branch, create the worktree
-with `gtr`, never `git worktree`, and continue there. Preserve unrelated changes and never work
-directly on the default branch.
+with `git gtr new <branch>`, never a standalone `gtr` command or `git worktree`, and continue there.
+The tool is a Git subcommand installed as `git-gtr`, so every invocation begins `git gtr`. Preserve
+unrelated changes and never work directly on the default branch.
 
 Discover build, format, lint, code-generation, and test commands from CI, repository instructions,
 and manifests. Before editing, establish the repository's feedback ladder: semantic navigation and
@@ -46,8 +64,8 @@ rename tools; the cheapest valid compile or typecheck target; narrow test filter
 checked-build commands; and the broad final-verification commands. Learn their expected cost from
 repository guidance or measure it on first use, then use the cheapest tier that answers the current
 question. A repository instruction that selects a build wrapper governs which command is valid; it
-does not make every command exposed by that wrapper appropriate for the inner loop. Discover how
-infrastructure-backed tests are started. Do not assume commands or costs from another repository.
+does not make every command exposed by that wrapper appropriate for the inner loop. Do not assume
+commands or costs from another repository.
 
 Use semantic tooling and search for code discovery before compiling: find all callers, positional
 calls, direct construction in tests, references affected by a rename, and likely symbol or namespace
@@ -65,67 +83,21 @@ between slices.
 
 ### 1. Establish domain shapes
 
-When the handoff calls for new domain vocabulary, write only the structural shapes the tests and
-implementation need:
+When the handoff calls for new domain vocabulary, write only the structural shapes the
+implementation needs:
 
 - opaque identifiers, values with units, unions, and result/failure cases;
 - decision inputs and outputs, effect records, and stable public interfaces;
-- persistence declarations required for boundary tests.
+- persistence declarations required by the design.
 
 For a patch that changes no domain shape, skip this phase. Otherwise enforce construction-time
 invariants that belong to the type and compile or typecheck the narrowest relevant target. “Types
 first” is not permission to implement behavior: method bodies remain absent, stubbed, or minimal
-until a failing behavioral test requires them.
+until the behavior requires them.
 
-### 2. Develop behavior test-first
+### 2. Implement the behavior
 
-Test-first governs evidence order, not process-startup count. Use the specification's `Cost` column
-when present; for a patch brief, classify each named test from whether it needs a database, server,
-provider, browser, or similarly expensive fixture.
-
-Before writing an infrastructure-backed test, identify the material boundary claim it proves that no
-pure test or existing test can establish. If there is no such claim, omit the test and report the
-deviation from the handoff. Do not replay pure domain cases through infrastructure, and do not create
-one integration test per function, handler, or slice. Failure cases belong here only when the failure
-is created by mapping, translation, binding, authorization, transactions, concurrency, replay, or
-another real boundary behavior.
-
-For **fast tests** that execute in seconds without infrastructure:
-
-```text
-write one meaningful failing test
-→ run the narrowest target and observe the expected red
-→ implement the behavior
-→ rerun green
-→ refactor under green
-```
-
-For **infrastructure-backed tests**, batch the cases for one coherent seam:
-
-```text
-write the repository/endpoint/migration/provider batch
-→ start or reuse its infrastructure once
-→ run the narrowest supported target once and observe the batch red
-→ implement the complete seam
-→ rerun that target until green
-```
-
-Do not start a database, server, browser, or provider fixture once per assertion. Do not run the full
-integration suite between behaviors or slices. If the repository cannot select a narrow target,
-batch more aggressively rather than repeatedly paying for the whole suite.
-
-Use at most one happy-path end-to-end smoke test per new externally visible flow. Add none when an
-existing smoke already proves routing, dependency wiring, persistence, and the observable outcome.
-
-A red observation must be real, not inferred. It is sufficient for the batch failures collectively
-to demonstrate the missing seam; every assertion need not fail independently. A new behavioral test
-that passes immediately is a finding: determine whether behavior already exists, the seam is wrong,
-or the assertion is weak before proceeding.
-
-Tests assert outputs, observable state, and boundary fidelity rather than mock call sequences. Mock
-external boundaries, not the unit's own collaborators. Prefer one faithful database round trip,
-captured provider payload, or replay test over several cheap tests that cannot detect the production
-failure.
+Test domain decisions through the functional core’s public seam. Test an infrastructure boundary only for behavior that the pure tests cannot establish: mapping fidelity, real provider binding, persistence semantics, or adverse ordering. Do not repeat domain cases through infrastructure.
 
 ### 3. Wire boundaries after the core
 
@@ -134,8 +106,7 @@ the settled transaction and recovery model. Map rows, wire models, and provider 
 do not admit their representations into the domain for convenience.
 
 Develop persistence mapping, serialization, migrations, adapters, and endpoint wiring at their
-specified test seams using the cost-aware cadence above. Run code generation when the repository
-requires it.
+specified boundaries. Run code generation when the repository requires it.
 
 ## Verification
 
@@ -144,7 +115,7 @@ of:
 
 1. build or typecheck;
 2. format and lint;
-3. affected test suites, including the infrastructure-backed batches;
+3. affected test suites;
 4. required code generation and a clean generated diff;
 5. actual execution, state inspection, or visual inspection appropriate to the feature.
 
@@ -170,5 +141,5 @@ Record the final commands, results, and a working-tree fingerprint:
 { git rev-parse HEAD; git status --porcelain; git diff HEAD; } | shasum -a 1 | cut -c1-12
 ```
 
-Summarize completed behavior by `B` IDs, tests by `T` IDs, deviations from the specification, and
+Summarize completed behavior by `B` IDs, verification performed, deviations from the specification, and
 anything requiring human or production verification. Leave all changes uncommitted.

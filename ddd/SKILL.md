@@ -1,11 +1,11 @@
 ---
 name: ddd
-description: A domain-modeling standard — make impossible states impossible, functional core with I/O at the edges, opaque values at the boundaries, and the six test layers. Loaded by design, implement, and ship rather than invoked directly; use it when writing or reviewing domain logic, state machines, result types, identifiers, provider adapters, or anything with money, time, or a multi-field status.
+description: A domain-modeling standard — make impossible states impossible, use a functional core with I/O at the edges, and keep opaque values at boundaries. Loaded by design, implement, and ship rather than invoked directly; use it when writing or reviewing domain logic, state machines, result types, identifiers, provider adapters, or anything with money, time, or a multi-field status.
 ---
 
 # Domain Modeling Standard
 
-Twelve rules: ten about the shape of the domain, two about what crosses into it.
+Ten rules: eight about the shape of the domain, two about what crosses into it.
 Each is phrased so it can be answered yes or no against a diff.
 
 Most examples are C#, and the rules are sharpest on a typed OO language with records and
@@ -149,19 +149,7 @@ through to a business failure nobody decided on.
 
 ## Testing
 
-**11. Six layers in four groups, and the truth table lives in layer 1.** Pure transition and
-property tests; then boundary fidelity — persistence mapping and provider contract; then replay
-and interleaving; then a thin end-to-end set. **The transition table is the budget, not the
-state × event cross product**, and there is no standing layer of mock-sequencing tests:
-"does it call the reader?" cannot fail for a reason a user would notice, and "does it dispatch
-after the commit?" is better asked as behavior under an adverse ordering. Full contents, and
-what to delete, in `references/test-layers.md`.
-
-**12. Branch coverage, not line coverage — to aim, not to fill.** High line coverage beside low
-branch coverage means the failure modes are untested: the retryable-partial-success paths, the
-permanent-failure paths, the already-handled-idempotent paths. Measure both on the code you
-touched. A wide gap says the missing tests are failure edges; it does not say write one per
-branch.
+Test domain decisions through the functional core’s public seam. Test an infrastructure boundary only for behavior that the pure tests cannot establish: mapping fidelity, real provider binding, persistence semantics, or adverse ordering. Do not repeat domain cases through infrastructure.
 
 ## Code shape
 
@@ -211,5 +199,3 @@ the logic does.
 - `references/detectors.md` — the anti-shape catalog: what it looks like in code, how it
   fails, what to write instead. Read it when reviewing a design or a diff; if none of those
   shapes are present, the design probably satisfies rules 1–10.
-- `references/test-layers.md` — the six layers, what belongs in each, what not to write, and
-  what to delete.

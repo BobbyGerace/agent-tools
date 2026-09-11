@@ -13,7 +13,7 @@ iteratively annotate drafts.
 Announce at start: "I'm using design to research and grill you on <subject>, then produce the
 smallest complete implementation handoff."
 
-Load `ddd` before researching. Read its detector and test-layer references when the change contains
+Load `ddd` before researching. Read its detector reference when the change contains
 domain logic, state, time, money, identifiers, persistence, provider boundaries, or multi-field
 status. Apply the standard during the interview, especially when proposing exact shapes.
 
@@ -61,6 +61,12 @@ Build the best available model of the current system:
 - find the existing architectural and testing seams and nearby precedents;
 - retrieve referenced tickets, designs, recordings, or runtime records that bear on the change;
 - check runtime data when the design depends on what rows or payloads actually look like.
+
+For UI work, search the referenced context and repository for an actual visual design: a Figma
+file, frame, prototype, screenshot, mockup, or other authoritative image. Open and visually inspect
+the applicable rendered states and responsive views; metadata, node names, token exports, and prose
+summaries do not substitute for seeing the design. If a reference exists but cannot be viewed, ask
+for access or exported images before continuing the UI design.
 
 Preserve the lead agent's context for reasoning and the interview. When research is broad or
 repetitive and delegation is available, send bounded evidence-gathering tasks to background agents:
@@ -121,25 +127,15 @@ Use real names and concise declarations, tables, or pseudocode. Ask what illegal
 meaning, or unowned rule the shape still permits. Apply `ddd` to the proposal before presenting it;
 do not make the user discover basic modeling defects for you.
 
+When UI work has no visual reference, make the visual design an explicit branch of the interview.
+Settle layout, hierarchy, styling direction, interaction states, and responsive behavior with the
+user rather than leaving those choices to implementation. Record in the handoff that no visual
+reference existed and identify the UI decisions approved in the conversation. If the user explicitly
+authorizes the implementer to improvise some visual choices, record the scope of that authorization.
+
 ## 5. Settle testing before the handoff
 
-Agree on the few highest stable seams at which behavior will be tested. Prefer existing seams and the
-highest seam that proves the behavior without making unrelated implementation detail contractual.
-
-Name the tests that earn their cost, their DDD layer, and the user-visible failure each prevents.
-Classify them as fast/pure or infrastructure-backed. Treat the transition table as the test budget
-for a state machine; do not fill a state-by-event cross product or all six test layers by habit.
-
-Default to zero infrastructure-backed tests. Each proposed one must name a material boundary claim
-that pure tests and existing coverage cannot establish; do not allocate one per function, handler,
-or execution slice. Boundary-created failures such as mapping loss, query translation, binding,
-authorization, transactions, concurrency, and replay can earn cases. Domain rules already proved at
-the pure seam do not earn infrastructure duplicates.
-
-Group the cases that survive this test into one coherent batch per changed boundary. Use at most one
-happy-path end-to-end smoke test per new externally visible flow, and none when an existing smoke
-already proves the changed composition. The downstream implementer establishes red and green once
-per batch rather than starting infrastructure once per assertion.
+Test domain decisions through the functional core’s public seam. Test an infrastructure boundary only for behavior that the pure tests cannot establish: mapping fidelity, real provider binding, persistence semantics, or adverse ordering. Do not repeat domain cases through infrastructure.
 
 ## 6. Completion audit
 
@@ -151,7 +147,8 @@ proportion to the risks research exposed:
 - persistence, migrations, transactions, partial success, concurrency, and recovery;
 - retries, idempotency, duplicates, stale events, and ordering;
 - endpoint/message compatibility, rollout, rollback, and external effects;
-- testing seams, test cost, observability, and production verification.
+- UI references or, when none exist, the visual decisions and any bounded permission to improvise;
+- testing, observability, and production verification.
 
 Ask every new material question the audit exposes. The interview is complete only when a fresh
 implementer could build and verify the change without choosing product behavior, domain shape,
@@ -191,10 +188,12 @@ Check that:
 - every material statement comes from an observed fact or settled decision;
 - inferences remain labeled and no open question was silently defaulted;
 - exact approved shapes were transferred faithfully;
-- every behavior maps to tests and the patch or one of one or two execution slices;
+- the handoff names any tests whose seam or boundary claim is material to implementation;
 - every durable store, contract, effect, compatibility mechanism, and verification signal is present.
 - settled database and contract changes are identified as approved for implementation, without a
   redundant instruction to obtain approval again.
+- UI work names the viewed visual reference or records that no reference existed and transfers the
+  approved visual decisions and any explicit permission to improvise.
 
 For a patch brief, leave the handoff in the conversation and finish with:
 
