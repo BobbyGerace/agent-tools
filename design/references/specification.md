@@ -103,12 +103,31 @@ Name particular tests only when their seam or boundary claim is material to impl
 
 ## Execution slices
 
-Use one or two coherent vertical slices, not a kanban board or microtask list. For each slice name:
+A slice is the work of one `$implement` session, not a kanban card or microtask. It delivers its
+behaviors end to end and ships as one PR per repository it touches. Deploys across repositories are
+not atomic, so list those PRs in deploy order and make each one safe to deploy alone against
+whatever versions of the others are live. Give each slice a stable ID and name:
 
 - behaviors it completes;
-- domain and boundary output it produces;
-- dependencies on the other slice;
+- what it exposes to and consumes from other slices;
+- slices it depends on;
+- its PRs in deploy order;
 - the observable condition that makes it complete.
+
+Every slice is **settled**, meaning buildable without further choices, or **open**, meaning it
+lists decisions deferred to a later `$design` of that slice. Defer a decision only when no answer to
+it could force a change outside the slice, and record the constraint every acceptable answer must
+meet. A decision you cannot bound is not yet understood. The fields above are never deferred,
+because they are what make that test answerable.
+
+The first slice to build is always settled. Nothing is learned between this design and its
+implementation, so leaving it open only postpones the interview. A single-slice specification is
+therefore always settled.
+
+```text
+S3. <name>: open
+    Deferred: <decision>. Constraint: <what every answer must meet>.
+```
 
 ## Out of scope
 

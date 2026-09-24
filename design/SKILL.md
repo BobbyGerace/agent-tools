@@ -50,6 +50,13 @@ request.
 degrade gracefully without introducing a third document kind. Never modify or replace a document
 produced by `design` unless the user explicitly asks.
 
+**Designing an open slice** — when invoked on an open slice of an existing specification, treat
+that specification's settled decisions as facts, research the code earlier slices merged, and grill
+only the slice's deferred decisions and anything the merged code contradicts. If an answer would
+change anything outside the slice, the deferral was invalid: stop and resolve it with the user as
+an amendment to the parent specification, not locally. Produce a single-slice specification that
+names its parent and slice ID.
+
 Tell the user which path the evidence supports and why before grilling. This is a provisional
 classification, not a decision they need to make.
 
@@ -151,8 +158,9 @@ proportion to the risks research exposed:
 - testing, observability, and production verification.
 
 Ask every new material question the audit exposes. The interview is complete only when a fresh
-implementer could build and verify the change without choosing product behavior, domain shape,
-contract, persistence, or architecture.
+implementer could build and verify every settled slice without choosing product behavior, domain
+shape, contract, persistence, or architecture, and every open slice's deferred decisions pass the
+deferral test in the specification template.
 
 Use `grill-me`'s shared-understanding confirmation after this audit. It confirms the interview, not a
 document the user has not seen.
@@ -204,7 +212,8 @@ Patch settled. Continue in this conversation with `$implement`.
 For a specification, first read [the specification template](references/specification.md), write the
 whole document once, and format it with `prettier --write` when available. Commit only the named
 document in `~/designs` as `docs(<topic>): add specification`; never stage broadly in the shared
-designs repository. Finish with:
+designs repository. Finish with the following, appending the first slice's ID when the
+specification lists several slices:
 
 ```text
 Specification compiled from the full session transcript and approved interview.

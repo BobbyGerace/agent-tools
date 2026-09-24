@@ -19,8 +19,8 @@ Accept either a specification path or the settled patch brief in the current con
 brief is intentionally same-context; if neither it nor a specification is available, stop rather
 than reconstructing one from a vague request.
 
-For a specification, read the whole file, retrieve every required `## Context` artifact, and map each
-`B` behavior to its execution slice. For a patch, treat the brief as one slice. The handoff is authoritative, but verify current
+For a specification, read the whole file, retrieve every `## Context` artifact the slice being built
+requires, and identify the `B` behaviors that slice completes. For a patch, treat the brief as one slice. The handoff is authoritative, but verify current
 symbols, callers, and repository conventions before editing because the code may have moved.
 
 Required context is a precondition, not optional background. If any artifact, document, design,
@@ -58,6 +58,8 @@ with `git gtr new <branch>`, never a standalone `gtr` command or `git worktree`,
 The tool is a Git subcommand installed as `git-gtr`, so every invocation begins `git gtr`. Preserve
 unrelated changes and never work directly on the default branch.
 
+When a slice spans repositories, prepare a checkout in each repository it touches by the same rules.
+
 Discover build, format, lint, code-generation, and test commands from CI, repository instructions,
 and manifests. Before editing, establish the repository's feedback ladder: semantic navigation and
 rename tools; the cheapest valid compile or typecheck target; narrow test filters; analyzer or
@@ -77,9 +79,11 @@ the whole class before rerunning the relevant check.
 
 ## Execution slices
 
-Implement the specification's one or two slices in order, or a patch brief as one slice. Announce a
-compact summary when a slice begins and ends, but do not ask for sign-off between them. Do not commit
-between slices.
+Implement exactly one settled slice: a patch brief, the specification slice named in the invocation,
+or the whole specification when it has no execution slices. If a specification lists several slices
+and none is named, ask which one. If the slice is open, stop and tell the user to run `$design` on it;
+its deferred decisions belong to a design interview, not to this run. Announce a compact summary when
+the slice begins and ends.
 
 ### 1. Establish domain shapes
 
@@ -110,7 +114,7 @@ specified boundaries. Run code generation when the repository requires it.
 
 ## Verification
 
-After the final slice, perform one broad verification phase. Run the repository-defined equivalents
+After the slice is built, perform one broad verification phase. Run the repository-defined equivalents
 of:
 
 1. build or typecheck;
