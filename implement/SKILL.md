@@ -52,11 +52,19 @@ change not approved in the handoff; report the exact gap instead of silently des
 
 ## Workspace
 
-Detect the branch and repository root. Work in the current checkout only when it is already a
-worktree on a non-default branch. From the main checkout on the default branch, create the worktree
-with `git gtr new <branch>`, never a standalone `gtr` command or `git worktree`, and continue there.
-The tool is a Git subcommand installed as `git-gtr`, so every invocation begins `git gtr`. Preserve
-unrelated changes and never work directly on the default branch.
+Detect the execution environment, branch, and repository root. On a local machine, work in the
+current checkout only when it is already a worktree on a non-default branch. From a local main
+checkout on the default branch, create the worktree with `git gtr new <branch>`, never a standalone
+`gtr` command or `git worktree`, and continue there. The tool is a Git subcommand installed as
+`git-gtr`, so every invocation begins `git gtr`. Choose `<branch>` yourself: a short kebab-case
+name derived from the change. The name has no consequence worth a question, so never ask for one.
+
+In a disposable remote development environment provisioned for this work, use its existing checkout
+by default, including when it is the main checkout on the default branch. The environment is
+already the isolation, so do not create a worktree merely to isolate development from that checkout.
+Create one only when the task has a separate concrete reason for isolation, and explain that reason
+before doing so; if needed, use `git gtr new <branch>` there as well. Preserve unrelated changes in
+either environment.
 
 When a slice spans repositories, prepare a checkout in each repository it touches by the same rules.
 

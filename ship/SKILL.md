@@ -39,7 +39,8 @@ gh pr view --json number,state,isDraft,url,body,baseRefName
 `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`). Don't stack on an unmerged branch — if there's a real code dependency,
 ask first. If the base is ambiguous, **stop and ask**.
 
-**On `main`?** Ask for a branch name, create it, move the work over.
+**On `main`?** Create a branch with a short kebab-case name derived from the change, and move the
+work over. Choose the name yourself; it has no consequence worth a question.
 
 **Verify the feature, not merely the build.** Reuse credible implementation evidence when it
 exists. Otherwise perform the cheapest direct exercise appropriate to the change: run the command,
