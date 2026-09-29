@@ -11,7 +11,7 @@ A tour is not a summary of the diff and not a list of its changes. It is a readi
 
 ## Workflow
 
-1. **Read the whole diff first.** `git diff <range>`, `gh pr diff`, or whatever the user pointed at. Don't start selecting until you've seen all of it — selection depends on knowing what the change is *for*.
+1. **Read the whole diff first.** `git diff <range>`, `gh pr diff` (GitHub) / `tea pr checkout <n>` then `git diff` (Gitea), or whatever the user pointed at. Don't start selecting until you've seen all of it — selection depends on knowing what the change is *for*.
 2. **List the types it adds or changes** (see *Types first*). This is the cheapest high-yield pass and it usually supplies the tour's opening chapter.
 3. **Say what the change does, in one sentence, to yourself.** Then pick the stops a reader needs in order to reconstruct that sentence themselves. If an entry doesn't contribute to that, it isn't a stop.
 4. **Order the stops** (see *Telling the story*).

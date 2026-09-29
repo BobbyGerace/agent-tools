@@ -63,6 +63,28 @@ check("no pr -> None", core.merge_state(byname["bare"]._replace() if hasattr(byn
 check("no repo -> None", core.merge_state(core.Spec(
     path="x",name="x",title="x",started=dt.datetime.now(),pr=5,repo="",checks=[])), None)
 
+print("\n-- gitea_pr_state --")
+check("merged -> MERGED", core.gitea_pr_state({"state":"closed","merged":True}), "MERGED")
+check("open -> OPEN", core.gitea_pr_state({"state":"open","merged":False}), "OPEN")
+check("closed unmerged -> CLOSED", core.gitea_pr_state({"state":"closed","merged":False}), "CLOSED")
+# `tea api` exits 0 on a 404; the body is the only signal.
+check("404 body -> None", core.gitea_pr_state({"message":"not found"}), None)
+check("non-dict -> None", core.gitea_pr_state([]), None)
+
+print("\n-- merge_state asks Gitea, then GitHub --")
+_g, _h = core._gitea_merge_state, core._github_merge_state
+_spec5 = core.Spec(path="x",name="x",title="x",started=dt.datetime.now(),pr=5,repo="o/r",checks=[])
+asked=[]
+core._gitea_merge_state = lambda r,p: asked.append("gitea") or "OPEN"
+core._github_merge_state = lambda r,p: asked.append("github") or "MERGED"
+check("Gitea answer wins", core.merge_state(_spec5), "OPEN")
+check("GitHub not asked when Gitea knows", asked, ["gitea"])
+core._gitea_merge_state = lambda r,p: None
+check("unknown on Gitea -> GitHub", core.merge_state(_spec5), "MERGED")
+core._github_merge_state = lambda r,p: None
+check("unknown on both -> None", core.merge_state(_spec5), None)
+core._gitea_merge_state, core._github_merge_state = _g, _h
+
 print("\n-- held specs are never due, and never evaluated --")
 evaluated=[]
 def fake(s):

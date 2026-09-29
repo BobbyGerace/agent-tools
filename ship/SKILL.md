@@ -19,12 +19,24 @@ Run these together:
 ```bash
 git branch --show-current                                    # never ship from main
 git status --porcelain                                       # what's about to be committed
-gh pr view --json number,state,isDraft,url,body,baseRefName  # does a PR already exist
+git remote get-url origin                                    # which host: Gitea or GitHub
 git rev-parse --abbrev-ref --symbolic-full-name @{u}         # the tracking branch
 ```
 
+**Host.** Pick the CLI from the origin URL, never by habit: `tea` for a Gitea remote, `gh` for
+GitHub. A repo that migrated hosts often leaves an archived copy behind, so the wrong CLI either
+fails or finds the stale copy. Then check for an existing PR:
+
+```bash
+# Gitea — 404 means no PR yet. Fields: number, state, draft, html_url, body, base.ref
+tea api repos/<owner>/<repo>/pulls/<base>/<branch>
+# GitHub
+gh pr view --json number,state,isDraft,url,body,baseRefName
+```
+
 **Base branch.** New PRs branch off the repo's default branch — read it, don't assume
-(`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`). Don't stack on an unmerged branch — if there's a real code dependency,
+(Gitea: `tea api repos/<owner>/<repo> | jq -r .default_branch`; GitHub:
+`gh repo view --json defaultBranchRef -q .defaultBranchRef.name`). Don't stack on an unmerged branch — if there's a real code dependency,
 ask first. If the base is ambiguous, **stop and ask**.
 
 **On `main`?** Ask for a branch name, create it, move the work over.
@@ -381,14 +393,21 @@ are the user's to run.
 ## Step 5: Open the PR
 
 ```bash
+# Gitea
+tea pr create --draft --base main --title "<type>(<scope>): <Sentence>" --description-file <body.md>
+# GitHub
 gh pr create --draft --base main --title "<type>(<scope>): <Sentence>" --body "<body>"
 ```
 
-**Always `--draft`.** Never `gh pr ready`, never `gh pr merge`, never mark ready for review —
-the user publishes when they are ready.
+**Always `--draft`.** Never mark ready for review (`tea pr edit --ready`, `gh pr ready`), never
+merge (`tea pr merge`, `gh pr merge`) — the user publishes when they are ready. On Gitea a draft
+is just a `WIP: ` title prefix, so any title edit must keep it: pass `--draft` alongside
+`--title` (it is idempotent).
 
-If a PR already exists: update the body with `gh pr edit <n> --body`, and fix the base with
-`--base` if it drifted.
+If a PR already exists: update the body (`tea pr edit <n> --description-file <body.md>` /
+`gh pr edit <n> --body`), and fix the base if it drifted (Gitea:
+`tea api -X PATCH repos/<owner>/<repo>/pulls/<n> -f base=<branch>`; GitHub: `--base`). In
+`tea pr edit`, `-r` means `--add-reviewers`, not `--repo` — spell `--repo` out.
 
 If the push fails on a pre-existing hook or CI-style check, read the error, fix it, retry.
 After the **same error twice**, stop and report what was tried.

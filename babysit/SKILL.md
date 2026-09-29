@@ -34,6 +34,17 @@ gh run watch <run-id> --repo <owner/repo> --interval <seconds> --exit-status
 
 Do not use `gh pr checks --watch` when success depends on optional or aggregate jobs that are not required checks; watch the authoritative workflow run instead.
 
+Gitea has no blocking watcher, so poll at the requested cadence (option 2 or 3). A PR's runs report `head_branch: null`, so resolve them by commit, not branch:
+
+```bash
+tea api "repos/<owner>/<repo>/actions/runs?head_sha=<sha>"   # every run for the PR head: id, path, status, conclusion
+tea api repos/<owner>/<repo>/actions/runs/<run-id>           # one run: status, conclusion, html_url
+tea api repos/<owner>/<repo>/commits/<sha>/status            # combined check state, one status per job
+tea actions runs logs <run-id> --repo <owner>/<repo>         # logs once something fails
+```
+
+A run is terminal when `status` is `completed`; `conclusion` then says how. Required checks posted by an external service rather than a workflow appear only in the combined commit status, not as runs.
+
 If the environment limits individual blocking waits, divide the interval into permitted chunks while keeping the same turn open. For example, implement five minutes as five 60-second waits, then perform exactly one status query. Do not end a turn between chunks when ending it causes immediate automatic continuation.
 
 Use an operating-system cron only when the user explicitly wants a durable schedule and accepts persistent machine configuration. Prefer an in-session watcher for a one-off operation because it terminates with the target.

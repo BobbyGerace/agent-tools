@@ -416,7 +416,7 @@ def _now_local() -> dt.datetime:
 # Merge state                                                                  #
 # --------------------------------------------------------------------------- #
 
-# How often to re-ask about a PR that hasn't merged. A `gh pr view` is ~0.5s, so
+# How often to re-ask about a PR that hasn't merged. A PR lookup is ~0.5s, so
 # this is cheap; the interval exists to keep a 20-spec board from making 20 API
 # calls every UI tick.
 MERGE_RECHECK_SECONDS = 5 * 60
@@ -425,19 +425,62 @@ MERGE_RECHECK_SECONDS = 5 * 60
 def merge_state(spec: Spec) -> str | None:
     """`MERGED` / `OPEN` / `CLOSED`, or None when it can't be determined.
 
+    Asks Gitea first, then GitHub: a repo migrated to Gitea keeps its PR numbers
+    and may leave an archived GitHub copy, so the Gitea answer wins. A repo
+    only on GitHub gets a 404 from Gitea and falls through.
+
     None means "no idea", and callers must treat that as runnable. Failing open
-    is deliberate: an expired `gh` token or a missing `pr` field should not
+    is deliberate: an expired token or a missing `pr` field should not
     silently disable verification for every spec on the board.
     """
     if spec.pr is None or spec.gh_repo is None:
         return None
-    proc = subprocess.run(
-        ["gh", "pr", "view", str(spec.pr), "--repo", spec.gh_repo,
-         "--json", "state", "-q", ".state"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    return (_gitea_merge_state(spec.gh_repo, spec.pr)
+            or _github_merge_state(spec.gh_repo, spec.pr))
+
+
+def _gitea_merge_state(repo: str, pr: int) -> str | None:
+    try:
+        proc = subprocess.run(
+            ["tea", "api", f"repos/{repo}/pulls/{pr}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return gitea_pr_state(json.loads(proc.stdout))
+    except ValueError:
+        return None
+
+
+def gitea_pr_state(payload: object) -> str | None:
+    """Map a Gitea pull-request payload onto the GitHub state names.
+
+    `tea api` exits 0 on a 404 and returns `{"message": "not found"}`, so a
+    payload without `state` is "unknown", not an error.
+    """
+    if not isinstance(payload, dict) or "state" not in payload:
+        return None
+    if payload.get("merged"):
+        return "MERGED"
+    return {"open": "OPEN", "closed": "CLOSED"}.get(payload["state"])
+
+
+def _github_merge_state(repo: str, pr: int) -> str | None:
+    try:
+        proc = subprocess.run(
+            ["gh", "pr", "view", str(pr), "--repo", repo,
+             "--json", "state", "-q", ".state"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except FileNotFoundError:
+        return None
     if proc.returncode != 0:
         return None
     state = proc.stdout.strip().upper()
