@@ -24,7 +24,7 @@ done
 | `design`          | Researches and grills toward a complete implementation handoff  | by you               |
 | `implement`       | Builds a handoff with types first and cost-aware TDD             | by you               |
 | `review`          | Reviews finished work in a fresh background-agent context       | by you               |
-| `ship`            | Commits, writes the PR, authors the verify spec, opens a draft  | by you               |
+| `ship`            | Commits, writes the PR and its verification, opens a draft      | by you               |
 | `orchestrate`     | Runs a multi-slice specification through the loop to ready PRs  | by you               |
 | `ddd`             | The domain-modeling standard and code shape rules               | loaded by the others |
 | `vim-diff-tour`   | Turns a diff or PR into an ordered Neovim quickfix reading tour | by you               |
