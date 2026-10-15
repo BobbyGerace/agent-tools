@@ -12,7 +12,7 @@ Symlink each one into `~/.claude/skills/`:
 
 ```bash
 REPO=$(pwd)                       # wherever you cloned this
-for s in explain-context grill-me design implement review ship ddd vim-diff-tour babysit investigate; do
+for s in explain-context grill-me design implement review ship orchestrate ddd vim-diff-tour babysit investigate; do
   ln -s "$REPO/$s" ~/.claude/skills/"$s"
 done
 ```
@@ -25,14 +25,16 @@ done
 | `implement`       | Builds a handoff with types first and cost-aware TDD             | by you               |
 | `review`          | Reviews finished work in a fresh background-agent context       | by you               |
 | `ship`            | Commits, writes the PR, authors the verify spec, opens a draft  | by you               |
+| `orchestrate`     | Runs a multi-slice specification through the loop to ready PRs  | by you               |
 | `ddd`             | The domain-modeling standard and code shape rules               | loaded by the others |
 | `vim-diff-tour`   | Turns a diff or PR into an ordered Neovim quickfix reading tour | by you               |
 | `babysit`         | Monitors asynchronous work at a deterministic cadence           | by you               |
 | `investigate`     | Diagnoses behavior from runtime evidence and code                | automatically        |
 
 The loop: `explain-context` (if the domain is unfamiliar) → `design` → `implement` → `review` →
-`ship`. The design interview is the human review surface, and its result is either a same-context
-patch brief or an implementer specification.
+`ship`, or `design` → `orchestrate` to run every slice of a specification through the rest. The
+design interview is the human review surface, and its result is either a same-context patch brief
+or an implementer specification.
 `grill-me` is the small reusable interrogation primitive inside `design`, and can also be invoked
 alone for plans and decisions that do not need a software specification.
 `ddd` is a reference bundle the design, implementation, and shipping skills load; there's no
