@@ -13,9 +13,10 @@ there's nothing to restart. Dropping is one keystroke.
 Checks run on a per-spec backoff ladder (see `verify_core.interval_for`) in a
 background thread, so a 30-second psql query never freezes the UI.
 
-PROD: this reads production Postgres and Datadog, using the same readonly
-Keychain creds as `verify-spec`. macOS will prompt once per credential the first
-time this binary reads them — that's expected; choose Always Allow.
+PROD: this reads production Postgres and the telemetry store, using the same
+readonly Keychain DSN and telemetry command as `verify-spec`. macOS will prompt
+once for the DSN the first time this binary reads it — that's expected; choose
+Always Allow.
 """
 
 from __future__ import annotations
@@ -336,7 +337,7 @@ def fit_hint(options: list[str], width: int) -> str:
 def wrap(text: str, attr: int, width: int) -> list[tuple[str, int]]:
     """Break one logical line into as many display lines as it needs.
 
-    Continuations keep the original line's indentation, so a wrapped Datadog
+    Continuations keep the original line's indentation, so a wrapped SQL
     query stays visually attached to the check it belongs to. Long unbroken
     tokens (a query with no spaces) are split rather than clipped — truncating
     a query is worse than an ugly break, because the part that got cut is

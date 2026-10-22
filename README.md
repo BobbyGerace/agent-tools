@@ -24,7 +24,7 @@ done
 | `design`          | Researches and grills toward a complete implementation handoff  | by you               |
 | `implement`       | Builds a handoff with types first and cost-aware TDD             | by you               |
 | `review`          | Reviews finished work in a fresh background-agent context       | by you               |
-| `ship`            | Commits, writes the PR and its verification, opens a draft      | by you               |
+| `ship`            | Commits, writes the PR, authors the verify spec, opens a draft  | by you               |
 | `orchestrate`     | Runs a multi-slice specification through the loop to ready PRs  | by you               |
 | `ddd`             | The domain-modeling standard and code shape rules               | loaded by the others |
 | `vim-diff-tour`   | Turns a diff or PR into an ordered Neovim quickfix reading tour | by you               |
@@ -78,10 +78,11 @@ mkdir -p ~/verify/active ~/verify/archive
 
 ### Configuration
 
-| Variable           | Default        | What it does                                            |
-| ------------------ | -------------- | ------------------------------------------------------- |
-| `VERIFY_HOME`      | `~/verify`     | Where specs and board state live                        |
-| `VERIFY_GH_OWNER`  | unset          | GitHub owner for specs that name their repo bare        |
+| Variable               | Default           | What it does                                     |
+| ---------------------- | ----------------- | ------------------------------------------------ |
+| `VERIFY_HOME`          | `~/verify`        | Where specs and board state live                 |
+| `VERIFY_GH_OWNER`      | unset             | GitHub owner for specs that name their repo bare |
+| `VERIFY_TELEMETRY_CMD` | `telemetry-query` | The command telemetry checks run through         |
 
 `VERIFY_GH_OWNER` is worth setting. A spec's `pr` field is what holds it off the board until the
 PR merges, and resolving that needs `owner/name`. With the variable unset, a spec written as
@@ -89,13 +90,34 @@ PR merges, and resolving that needs `owner/name`. With the variable unset, a spe
 which produces reds that only mean "not deployed yet". Either export the owner or write
 `repo = "owner/api-service"` in the spec.
 
-Credentials are readonly and live in the macOS Keychain (`verify-spec setup`); nothing here
+The Postgres DSN is readonly and lives in the macOS Keychain (`verify-spec setup`); nothing here
 stores a secret. That makes the credential path macOS-only — on another platform, replace
-`keychain_get`/`keychain_set` in `verify_core.py`. Everything else is portable.
+`keychain_get`/`keychain_set` in `verify_core.py`. Everything else is portable. Telemetry checks
+need no credential here at all; the telemetry command below holds its own login.
 
-There is **no APM connector**. One existed and was removed because it could not be made to
-return a trustworthy count; see the note above `CONNECTORS` in `verify_core.py` for what
-generalizes from that and what to prove before adding one back.
+There is **no browser source**. A frontend-only change has no automatable check; the backend half
+of one — the API call it makes — is checkable as spans.
+
+### The telemetry command
+
+Telemetry checks (`source = "telemetry"`) run through an external command rather than a client
+built into the runner, so nothing here knows which observability store sits behind them, how it
+authenticates, or what its tables are called. Provide any executable named `telemetry-query` on
+`PATH` (or name another with `VERIFY_TELEMETRY_CMD`) that does this:
+
+| Invocation | Must |
+| --- | --- |
+| `telemetry-query --help` | Say where the data lives and how to query it: the tables and columns, which time and sort-key columns every statement should be bounded on, the environment values, and the limits. Authors read this instead of guessing. |
+| `telemetry-query query [--json] [--limit N] [SQL]` | Run one read-only statement, from the argument or from stdin when it is absent. With `--json`, print `{"columns": [names], "rows": [[values], ...], "truncated": bool}`, where `truncated` means more rows matched than came back. Exit 0 on success; otherwise exit non-zero with the reason as the last line of stderr. |
+
+The runner calls `query --json --limit 500` with the statement on stdin and takes the first row's
+first cell as the value, so a check is normally one aliased count. A failure — an expired login,
+a timeout, a rejected statement — shows on the board as ERR, unverified, never as red, so the
+command should say in that last stderr line how to fix it.
+
+Authors run their controls through the same command. That is the reason it is a command and not a
+connector: a check and its control then read one store by construction, which a count taken from
+a UI or a different query tool cannot promise.
 
 ### Tests
 
@@ -103,9 +125,9 @@ generalizes from that and what to prove before adding one back.
 ./verify/tests/run-all.sh
 ```
 
-279 assertions, no network — connectors and `gh` are stubbed throughout, so the suites never
-touch prod. Worth running after any change to `verify_core.py`, which two sessions have edited
-concurrently before now.
+298 assertions, no network — the telemetry command, `psql`, and `gh` are stubbed throughout,
+so the suites never touch prod. Worth running after any change to `verify_core.py`, which two
+sessions have edited concurrently before now.
 
 ## Scope
 

@@ -13,20 +13,23 @@ def ck(l,g,x=True):
     print(("  ok  " if g==x else "  BAD ")+l+("" if g==x else f"   got {g!r}"))
     if g!=x: fails.append(l)
 
-# A realistically long, awkward check: a parenthesised OR of two globbed attribute
-# values plus a negation. Long enough to need wrapping at every pane width tested,
-# with tokens that must not be silently dropped mid-glob.
-QUERY = ("env:prod source:api-service status:error (@SourceContext:*BillingPreferences* "
-         "OR @SourceContext:*BillingPreferenceReader*) -@evt.name:email_opt_out")
-HEALTHY = ("THE key check. Prod holds ~101 billing_preferences rows with type "
-           "'account_needs_review' that must stay readable after the enum member is deleted.")
-RAW = "count=3 over 24h"
+# A realistically long, awkward check: a parenthesised OR of two wildcard matches
+# on a map attribute plus a negation. Long enough to need wrapping at every pane
+# width tested, with tokens that must not be silently dropped mid-pattern.
+QUERY = ("SELECT count() AS n FROM otel_logs WHERE Timestamp >= now() - INTERVAL 24 HOUR "
+         "AND ServiceName = 'invoice-worker' AND SeverityText = 'ERROR' "
+         "AND (LogAttributes['SourceContext'] ILIKE '%InvoiceReminderScheduler%' "
+         "OR LogAttributes['SourceContext'] ILIKE '%InvoiceReminderDispatcher%') "
+         "AND NOT Body ILIKE '%reminder_suppressed_by_customer_preference%'")
+HEALTHY = ("THE key check. Reminders scheduled before this deploy must still dispatch "
+           "after it, so any scheduler error from here on means the migration broke them.")
+RAW = "n=3"
 
 open(f"{SB}/active/probe.toml","w").write(
- f'[spec]\ntitle = "account_needs_review code removal"\n'
+ f'[spec]\ntitle = "invoice reminder scheduler cutover"\n'
  f'started = {dt.datetime.now().astimezone().replace(microsecond=0).isoformat()}\n'
  f'pr = 4210\nrepo = "api-service"\n'
- f'\n[[checks]]\nname = "billing-preference readers not erroring"\nsource = "datadog"\n'
+ f'\n[[checks]]\nname = "reminder scheduler not erroring"\nsource = "telemetry"\n'
  f'query = """{QUERY}"""\nop = "eq"\nvalue = 0\nhealthy = """{HEALTHY}"""\n')
 
 b=vb.Board(); b.rescan()
@@ -72,7 +75,7 @@ for width in (70, 100, 140):
     ck(f"w={width}: whole query present ({len(QUERY.split())} tokens)", missing, [])
     missing_h=[tok for tok in HEALTHY.split() if tok not in out]
     ck(f"w={width}: whole expect note present", missing_h, [])
-    ck(f"w={width}: raw result present", RAW in out or "count=3" in out)
+    ck(f"w={width}: raw result present", RAW in out)
 
 print("\n-- scroll indicator appears only when content overflows --")
 w=W(h=8,w=80); vb.draw_detail(w,b,spec,0)

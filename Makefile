@@ -97,5 +97,8 @@ doctor: ## Report what is and isn't configured
 	@printf 'VERIFY_HOME:     %s\n' "$${VERIFY_HOME:-$$HOME/verify (default)}"
 	@if [ -n "$${VERIFY_GH_OWNER:-}" ]; then printf 'VERIFY_GH_OWNER: %s\n' "$$VERIFY_GH_OWNER"; \
 	 else printf 'VERIFY_GH_OWNER: \033[1;33munset — bare repo names in specs fail open\033[0m\n'; fi
+	@t=$${VERIFY_TELEMETRY_CMD:-telemetry-query}; \
+	 if command -v "$$t" >/dev/null 2>&1; then printf 'telemetry cmd:   %s\n' "$$(command -v $$t)"; \
+	 else printf 'telemetry cmd:   \033[1;33m%s not on PATH — telemetry checks will ERR\033[0m\n' "$$t"; fi
 	@n=0; for s in $(SKILLS); do [ -L "$(CLAUDE_SKILLS)/$$s" ] && n=$$((n+1)); done; \
 	 printf 'skills linked:   %s/%s\n' "$$n" "$(words $(SKILLS))"

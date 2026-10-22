@@ -6,7 +6,7 @@ description: Explicit invocation only. Use only when the user names `$ship`; nev
 # Ship
 
 Turn finished, verified work into a draft PR with a description a stranger can review and
-verification queries that can actually return data.
+verification checks that will actually run.
 
 Announce at start: "I'm using ship to open the PR."
 
@@ -188,7 +188,7 @@ of the exhaustive first draft. Aim for something skimmed in under a minute.
 ## Step 4: Monitoring & Verification
 
 No PR is complete without it, and it must be **fully self-contained** — every query written
-out inline, in the PR body. Never point at `.scratch/` or any local tooling.
+out inline, in the PR body. Never point at `verify-spec`, `.scratch/`, or any local tooling.
 
 **Start from the design.** Its `## Production verification` section should already name the signal
 that proves question 1, and any instrumentation needed for it should be in the diff. If the design
@@ -205,22 +205,27 @@ It must answer **both** of these, always:
    while the feature is 100% broken, so at least one check must catch the change silently
    suppressing or failing the main flow.
 
-For backend changes that's usually a Datadog logs query (the actual query string, plus what a
-healthy result looks like) and/or SQL (the actual statement and the expected row shape).
+For backend changes that's usually a telemetry count over logs or spans and/or a database query
+— the actual statement, plus what a healthy result looks like. Telemetry lives behind
+`telemetry-query`; run `telemetry-query --help` for where the data is, its tables and columns,
+and how to write a query that finishes, rather than guessing them from another system's schema.
 Include the threshold that distinguishes working from broken. For a `> 0` check on new behavior,
 say when it should first go non-zero: at deploy it reads zero with everything working, and on a
 low-traffic feature it can stay zero for days.
 
-**Bound every SQL query on a column that is actually indexed.** An unbounded query on a large
-table is a full table scan and will time out rather than return anything — and a check that times
-out is unverified, not failing. Confirm the index exists rather than assuming it: the migrations
-and entity configuration are in the repo, so this is checkable before you ship. The semantically
-obvious column is often the unindexed one, and if you substitute an indexed column for it, make
-sure the substitute can't exclude rows the original would have kept.
+**Bound every SQL query on a column that is actually indexed.** A check re-runs on the backoff
+ladder for as long as the spec is open, so an unbounded query is a full table scan every tick and
+will time out rather than return anything — and a check that times out is unverified, not
+failing. Confirm the index exists rather than assuming it: the migrations and entity
+configuration are in the repo, so this is checkable before you ship. The semantically obvious
+column is often the unindexed one, and if you substitute an indexed column for it, make sure the
+substitute can't exclude rows the original would have kept. Telemetry statements need the same
+bound: `--help` names the time and sort-key columns every one must filter on.
 
-**Say which store each query targets** — logs, browser RUM, traces, or SQL — because whoever
-runs it has to route it and they fail silently when swapped. Log evidence is a message string or
-`@SourceContext`. The store is the first element of a check's address — see below.
+**Say which store each query targets** — telemetry (logs and spans) or the database — because
+the spec has to route it and they fail when swapped. Log evidence is a message string or the
+logger's category (Serilog's `SourceContext`); span evidence is a span name, route, status, or
+span attribute. `source` is the first element of a check's address — see below.
 
 **An instrumented service is not necessarily a queryable one.** Code that starts a span or writes
 a log proves the signal is *emitted*, never that it reaches the store you are about to query — a
@@ -236,35 +241,25 @@ as having no signal, reached without the evidence.
 request scope while emitting no per-request event at all, in which case a path or route facet with
 no other predicate matches only incidental logs that happen to fire during a request — a `> 0`
 check on it stays empty and can go green off an unrelated startup line, while the same facet with
-`status:error` is perfectly sound. Control each direction separately; see rule 1.
+an error predicate is perfectly sound. Control each direction separately; see rule 1.
 
-**For frontend changes, use RUM.** A backend log query proves nothing about a browser bug. Read
-the app's RUM init for the service name and env values rather than guessing them, then:
-
-- `@type:error service:<app> env:<prod-env>` is the error channel.
-- If the init sets a release, RUM events carry `version:<commit sha>`, so question 1 can be
-  scoped to the exact deploy: `@type:error service:<app> env:<prod-env> version:<sha>`. That is
-  much stronger evidence than a global error count, which drifts for unrelated reasons.
-- For question 2, count views or a tracked action rather than errors —
-  `@type:view service:<app> env:<prod-env>` at its normal volume proves the app still loads,
-  which an error count alone does not.
-- **A RUM zero is weaker than a logs zero.** Retention filters decide what stays queryable, so
-  "no matching events" can also mean "not retained". The control below still has to run in the
-  env you are shipping: if the query only returns non-zero under a dev env, you have proven its
-  shape and _not_ its prod address. Record that rather than shipping it as a gate.
-- If a separate error tracker also collects frontend errors, remember a RUM query sees only
-  RUM. When RUM is silent where you expected signal, check there before concluding the frontend
-  is clean.
+**Frontend changes have no browser source.** A backend query proves nothing about a browser bug,
+and the telemetry store holds no browser events. So a frontend-only change gets no automatable
+check: say so in Monitoring & Verification, and say what a person should look at after deploy
+instead — including a separate error tracker, if one collects frontend errors. When the change
+also alters what the frontend asks of the backend — a new API call, a changed request — that half
+is checkable as spans on the backend route, and so is question 2: the route's request volume
+holding at its normal level shows the page still calls it.
 
 If a change genuinely can't be verified this way, say so explicitly and explain why. Don't
 omit the section.
 
 ### Every check needs a control
 
-A check is an **address** plus a **predicate**. The address says where to look: the store
-(logs / RUM / traces / SQL), the env tag, service, facet names _and their value patterns_,
-table, columns, enum literals. The predicate is the part this PR changes — the new message
-string, the new column's value, `status:error`.
+A check is an **address** plus a **predicate**. The address says where to look: `source`
+(telemetry / postgres), the environment, service, table, columns, attribute keys _and their
+value patterns_, enum literals. The predicate is the part this PR changes — the new message
+string, the new column's value, an error-severity filter.
 
 Only the predicate is unprovable before deploy. The address is provable now, and an unproven
 address is the most expensive defect in this workflow: a misaddressed query returns 0, which
@@ -273,39 +268,127 @@ The cost is never the red — it's the green that isn't evidence.
 
 For every check, before it ships:
 
-1. **Reuse an address that already works — but only in the direction it was proven.** Look for
-   an existing check hitting the same store and service — a prior PR's Monitoring & Verification,
-   a monitor, a dashboard query — and copy its address verbatim. A passing sibling is stronger
-   evidence than anything you can reason out. Two limits on what a sibling can lend you, both of
-   which have shipped false greens:
-   - **An address proven for `status:error`/`eq 0` is NOT proven for `> 0`.** A sibling error gate
-     reading zero tells you the query parses; it does not tell you the address can ever return
-     data. If the sibling's op differs from yours, you have inherited nothing.
+1. **Reuse an address that already works — but only in the direction it was proven.** grep
+   `$VERIFY_HOME/active/*.toml` and `archive/` for a check with the same `source` hitting the
+   same service — failing that, a prior PR's Monitoring & Verification — and copy its address
+   verbatim. A passing sibling is stronger evidence than anything you can reason out. Two limits
+   on what a sibling can lend you, both of which have shipped false greens:
+   - **An address proven for an error gate (`eq 0`) is NOT proven for `> 0`.** A sibling error
+     gate reading zero tells you the query parses; it does not tell you the address can ever
+     return data. If the sibling's op differs from yours, you have inherited nothing.
    - **A sibling's PASS only counts if that sibling's address was itself proven.** "Same shape ran
      clean through PR #X" launders a false baseline forward when #X's green was also an empty
      query. Follow the citation to a measured non-zero, or re-measure.
-2. **Run the control through the path the check will be run on — not a side channel.** The
-   same query with the predicate removed and _nothing else changed_ — same env, same service,
-   same facets, same table. It must return non-zero. Widening the window is allowed; a window
-   is not an address. Dropping or loosening scope is not, because then you've proven an address
-   you aren't shipping.
+2. **Run the control, through the runner's path — not a side channel.** The same query with
+   the predicate removed and _nothing else changed_ — same env, same service, same attributes,
+   same table. It must return non-zero. Widening the time bound is allowed; a window is not an
+   address. Dropping or loosening scope is not, because then you've proven an address you
+   aren't shipping. For a telemetry check that path is `telemetry-query query`, the command the
+   runner itself calls — not a UI, an MCP tool, or another client that happens to reach the
+   same data.
 
    **The tool you measure with is part of the control.** A query tool can search a different
-   store than the one the check will be run against — a different index, a historical/archive
-   tier, a different default scope — and hand back a confident non-zero count for data that
-   path cannot see. Then the check ships with a recorded control and still reads zero forever.
-   If you cannot measure through the same path, say the address is unproven; do not launder an
-   out-of-band number into a `control:` line. The strongest control is an existing check that
-   has itself returned non-zero through that path — prefer reusing one of those addresses over
-   any measurement you take yourself.
+   store than the runner does — a different index, a historical/archive tier, a different
+   default scope — and hand back a confident non-zero count for data the runner cannot see.
+   Then the check ships with a recorded control and still reads zero forever. If you cannot
+   measure through the same path the runner uses, say the address is unproven and mark the
+   check `level = "warn"`; do not launder an out-of-band number into a `control:` line. The
+   strongest control is an existing check the runner has itself scored PASS — prefer reusing
+   one of those addresses over any measurement you take yourself.
 3. **Prove new elements against the diff instead.** A message string, column, or route that
    this PR creates can't be controlled against prod. Match it to the artifact that will create
    it — the `Log.Here()` literal, the migration, the route attribute — copied character for
    character, never retyped from memory.
-4. **Record which.** One line per check in the PR body: `control: <query> = <n> over <window>`,
-   or `address: <element> is new here, matches <file>:<line>`. Every check gets one or the other.
+4. **Record which.** One line in the check's `healthy` and beside the check in the PR body:
+   `control: <query> = <n> over <window>`, or `address: <element> is new here, matches
+   <file>:<line>`. Every check gets one or the other.
 5. **Fail closed.** If an element is unproven in both directions, say so in the check and in
    the PR body. Don't ship it looking live.
+
+### The spec file
+
+Separately from the PR body — this is your own tooling and stays out of the description
+entirely — write the same checks as a spec:
+
+```bash
+verify-spec schema                                    # get the current shape; don't trust memory
+telemetry-query --help                                # the telemetry store: tables, bounds, limits
+# write $VERIFY_HOME/active/<descriptor>.toml
+verify-spec validate $VERIFY_HOME/active/<descriptor>.toml
+```
+
+Pick each check's `source` from where its evidence actually lives: `postgres` for the application
+database, `telemetry` for logs and spans. Both take SQL, but in different dialects against
+different tables, so a statement under the wrong `source` usually errors on every tick instead of
+counting anything.
+
+A telemetry check is one statement whose first cell is the count — `SELECT count() AS n ...` in
+the dialect `--help` describes. The time bound goes in the statement; there is no `window` field.
+Spans are as queryable as logs, so a change whose only evidence is a span name, route, or span
+attribute is verifiable here, under the same control as a log line. A span visible in a trace UI
+does not prove it reaches the store the runner reads; the control through `telemetry-query` does.
+There is no browser source — see the frontend paragraph above.
+
+`validate` is a lint on the spec, not the queries: it runs no network, so it is always safe to
+run, and it cannot tell you whether a statement parses or returns data. The control does that.
+
+`verify-board` polls `active/`, so dropping the file in is the entire add path — nothing to
+restart. Include the `[spec]` header:
+
+```toml
+[spec]
+title   = "Overage true-up planner"
+started = 2026-08-04T14:30:00-04:00   # from `date -Iseconds` — see below
+pr      = 9812
+repo    = "owner/api-service"
+```
+
+Get `started` from `date -Iseconds` rather than composing it. Two ways to get it wrong: a
+bare date reads as midnight and skips the 20-minute tier that matters right after a deploy,
+and a _naive_ timestamp is read as local time — so writing one in UTC dates the spec into the
+future and the board shows a negative age.
+
+`pr` is not decoration: the board holds a spec whose PR hasn't merged, showing it dimmed and
+running no checks, because nothing is deployed yet and a red would only mean "not shipped".
+Always include it, and `repo` too whenever the spec store covers more than one repo.
+
+One `[[checks]]` entry per M&V check. It mirrors the inline queries; it never replaces them.
+
+**Set `level` on every check.** It decides whether a failure shows red or yellow on the board, and
+getting it wrong is what makes a board stop being trusted. There is one rule, and it is absolute:
+
+> **Red is only ever for a positive failure — something bad was observed. Absence of evidence is
+> always `warn`, never `alert`.**
+
+The mechanical test, and it settles nearly every case: **ask what the check does the instant the
+PR deploys, before anything has had a chance to happen.** If it fails then, it is `warn`. No
+exceptions, including checks you are confident about.
+
+The op usually tells you outright:
+
+- `eq 0`, `lt <n>` on an error or orphan count → **`alert`**. Failing means the query *found*
+  something: orphaned rows exist, the fault rate is above the ceiling, errors are spiking. That is
+  proof, and it cannot fire before the feature runs — zero passes.
+- `gt 0`, `gte <volume>` → **`warn`**. Failing means the query found *nothing*, which at deploy
+  time is exactly what you expect and tells you nothing. Every `gt 0` check on new behavior is red
+  the moment it ships, and on a low-traffic feature it can stay red for days with everything
+  working perfectly.
+
+So the M&V split maps onto this the opposite way round from how it reads: Question 1 — _does the
+new thing work_ — is a `gt 0` check and therefore **`warn`**, even though it's the check you care
+most about. Question 2 — _did we break the happy path_ — is a volume floor and therefore `warn`
+too. Most specs are mostly yellow-capable, and that is correct: a red on this board should mean
+"stop and look", not "the feature hasn't fired yet".
+
+"A row that should exist and doesn't" is absence of evidence, not an invariant. It is `warn`.
+
+Once you have watched a `gt 0` check read non-zero, promoting it to `alert` is fair — at that
+point a return to zero is a real regression rather than a cold start. That is a follow-up edit
+after an observation, not something to ship on day one.
+
+**Never run `verify-spec run` or `verify-spec watch`, or `verify-board`.** Those hit prod on a
+loop and are the user's to run. A control is one read-only statement through `telemetry-query`,
+which rule 2 requires; that is the only prod query this skill runs.
 
 ## Step 5: Open the PR
 
@@ -339,6 +422,7 @@ Title gets the PR number appended once it exists:
 **#<number>** — <title>
 **URL:** <bare https:// URL on its own line — terminal, so no markdown links>
 **Status:** Draft
+**Spec:** $VERIFY_HOME/active/<descriptor>.toml (<n> checks) — on the board within 10s
 ```
 
 ## Step 6: Responding to an automated reviewer
@@ -375,4 +459,4 @@ Do **not** treat a clean automated domain review as evidence the `ddd` rules wer
 - Reference local tooling or paths in the PR body.
 - Mine personal uncommitted planning or design files for PR content or links.
 - Ship without the Monitoring & Verification section.
-- Run anything that queries prod.
+- Run anything that queries prod, beyond a read-only control through `telemetry-query`.

@@ -23,8 +23,6 @@ import os
 import subprocess
 import sys
 import tomllib
-import urllib.error
-import urllib.request
 from dataclasses import dataclass, field
 
 USER = os.environ.get("USER") or getpass.getuser()
@@ -41,38 +39,20 @@ WORKTREE_VERIFY_DIR = os.path.join(".scratch", "verify")
 
 # Keychain service names (login keychain, account = $USER).
 KC_PG_DSN = "verify-spec-pg-dsn"
-KC_DD_API_KEY = "verify-spec-dd-api-key"
-KC_DD_APP_KEY = "verify-spec-dd-app-key"
-KC_DD_SITE = "verify-spec-dd-site"
-DEFAULT_DD_SITE = "datadoghq.com"
 
-# Facets that exist on APM spans and not on log or RUM events. This is Datadog's
-# data model, not anyone's configuration: a log query using one of these matches
-# nothing and counts zero — which reads as "the feature never ran" on a `gt` check
-# and, worse, as a clean pass on an `lt` error gate. Caught at validate time
-# because there is no way to tell the two apart from the result: both are the
-# integer 0.
-#
-# There is no APM connector here (see CONNECTORS below), so a span-addressed check
-# has to be rewritten against logs/SQL — or you add a connector and prove it.
-#
-# The span *tag* half of the mistake stays unlintable — `@my.span.tag:true` is
-# indistinguishable from a log attribute. The span-name selector is the tell, and
-# in practice it always travels with the tag.
-APM_ONLY_FACETS = (
-    "resource_name:",
-    "operation_name:",
-    "span_name:",
-    "span_type:",
-    "span.kind:",
-)
+# The telemetry command: whatever on PATH honors the contract in README.md
+# ("The telemetry command"). It owns its backend's auth and dialect, so nothing
+# here knows which observability store sits behind it. Overridable so a test —
+# or a second backend — can substitute its own.
+TELEMETRY_CMD = os.environ.get("VERIFY_TELEMETRY_CMD", "telemetry-query")
 
-
-def apm_facets_in(query: str) -> list[str]:
-    """APM-only facets present in a query. Substring match on `facet:` is enough —
-    these names have no log-side homonym, so there is nothing to disambiguate."""
-    lowered = query.lower()
-    return [f for f in APM_ONLY_FACETS if f in lowered]
+# Sources this runner once had. A spec still naming one is told where its check
+# went, rather than getting a bare "unknown source" and a guess.
+RETIRED_SOURCES = {
+    "datadog": "logs are now SQL against the telemetry store",
+    "spans": "spans are now SQL against the telemetry store",
+    "rum": "there is no browser source; a frontend-only change has no automatable check",
+}
 
 OPS = {
     "eq": lambda a, b: a == b,
@@ -126,34 +106,24 @@ def validate_check(check: dict, where: str) -> dict:
     """Validate one check and return it normalized. No network."""
     name = _require(check, "name", where)
     source = _require(check, "source", where)
-    if source == "spans":
+    if source in RETIRED_SOURCES:
         raise SpecError(
-            f"{where} ({name}): there is no APM connector. One was tried against "
-            "/api/v2/spans/analytics/aggregate and removed on 2026-08-06 because it "
-            "could not be made to return a trustworthy count — see CONNECTORS in "
-            "verify_core.py. Rewrite the check against logs (\"datadog\") or SQL "
-            '("postgres"), or say in the PR that this change has no automatable '
-            "check. If APM aggregates do work against your account, add a connector "
-            "and prove one query end to end through this code path first."
+            f"{where} ({name}): source '{source}' was removed — "
+            f"{RETIRED_SOURCES[source]}. Write the check as source = \"telemetry\" "
+            f"with a SQL count; `{TELEMETRY_CMD} --help` lists the tables."
         )
     if source not in CONNECTORS:
         raise SpecError(
             f"{where} ({name}): source must be one of {sorted(CONNECTORS)}"
         )
     _require(check, "query", where)
-    if source in ("datadog", "rum"):
-        apm = apm_facets_in(check["query"])
-        if apm:
-            raise SpecError(
-                f"{where} ({name}): query uses the APM-only facet "
-                f"{', '.join(apm)} but source '{source}' queries the "
-                f"{'Logs' if source == 'datadog' else 'RUM'} API. Span names do "
-                "not exist on log or RUM events, so this counts zero forever — "
-                "red on a 'gt' check, and a false green on an 'lt' one. There is "
-                "no APM source to switch to. Find a log line or a SQL predicate "
-                "instead, or state in the PR that the change is not verifiable "
-                "this way."
-            )
+    if "window" in check:
+        # A window outside the statement would read as the check's scope while
+        # the SQL's own time bound decides what is actually counted.
+        raise SpecError(
+            f"{where} ({name}): 'window' is not a field — put the time bound in "
+            "the query itself, where it also keeps the statement fast"
+        )
     op = _require(check, "op", where)
     if op not in OPS:
         raise SpecError(f"{where} ({name}): op '{op}' not one of {sorted(OPS)}")
@@ -175,7 +145,6 @@ def validate_check(check: dict, where: str) -> dict:
         "op": op,
         "value": float(check["value"]),
         "healthy": check.get("healthy", ""),
-        "window": check.get("window", "1h"),
         "level": level,
     }
 
@@ -617,119 +586,65 @@ def run_postgres(check: dict) -> tuple[float, str]:
         raise RuntimeError(f"first cell '{first_cell}' is not numeric")
 
 
-def _datadog_post(path: str, payload: dict, what: str) -> dict:
-    """POST to a Datadog aggregate API and return the parsed body.
+def run_telemetry(check: dict) -> tuple[float, str]:
+    """Run one SQL statement through the telemetry command; return (metric, raw).
 
-    Credentials, site resolution and error shaping live here so the three
-    aggregate connectors can differ in payload and response shape — which they
-    do — without each re-deriving the 403-scope hint.
+    The command is the one an author runs a control through, so a check and its
+    control read one store by construction. That is why this shells out rather
+    than calling a backend itself. An earlier trace connector never returned a
+    count worth acting on, and two lessons from it generalize past the vendor it
+    ran against:
+
+      * A span visible in a trace UI is not necessarily a countable one. The UI
+        and a query API can read different stores.
+      * Query tooling can search a different store than the runner does and
+        hand back confident non-zero counts for data the runner cannot see.
+        Controls measured that way ship checks that read zero forever.
+
+    The statement goes in on stdin, so no quoting has to survive a shell.
     """
-    api_key = require_cred(KC_DD_API_KEY, "Datadog API key")
-    app_key = require_cred(KC_DD_APP_KEY, "Datadog application key")
-    site = keychain_get(KC_DD_SITE) or DEFAULT_DD_SITE
-    req = urllib.request.Request(
-        f"https://api.{site}{path}",
-        data=json.dumps(payload).encode(),
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "DD-API-KEY": api_key,
-            "DD-APPLICATION-KEY": app_key,
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode(errors="replace")[:300]
-        hint = ""
-        if exc.code == 403:
-            hint = (f" — the application key may lack {what} read scope; "
-                    "check its scopes in Datadog")
-        raise RuntimeError(f"Datadog HTTP {exc.code}: {detail}{hint}")
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Datadog request failed: {exc.reason}")
+        proc = subprocess.run(
+            [TELEMETRY_CMD, "query", "--json", "--limit", "500"],
+            input=check["query"],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"`{TELEMETRY_CMD}` is not on PATH — see README.md, 'The telemetry command'"
+        )
+    if proc.returncode != 0:
+        lines = proc.stderr.strip().splitlines()
+        raise RuntimeError(lines[-1] if lines else f"{TELEMETRY_CMD} exited {proc.returncode}")
+    try:
+        result = json.loads(proc.stdout)
+        columns, rows = result["columns"], result["rows"]
+    except (ValueError, KeyError, TypeError):
+        raise RuntimeError(f"{TELEMETRY_CMD} printed something other than its JSON result")
+    raw = "\n".join(
+        " ".join(f"{c}={v}" for c, v in zip(columns, row)) for row in rows[:8]
+    ) or "(no rows)"
+    if check["metric"] == "rows":
+        if result.get("truncated"):
+            raise RuntimeError(
+                "more rows matched than the command returns, so the count would be "
+                "a floor — count them in the query and use metric = \"value\""
+            )
+        return float(len(rows)), raw
+    if not rows or not rows[0]:
+        raise RuntimeError("query returned no rows but metric is 'value'")
+    first_cell = rows[0][0]
+    try:
+        return float(first_cell), raw
+    except (TypeError, ValueError):
+        raise RuntimeError(f"first cell '{first_cell}' is not numeric")
 
-
-def _datadog_aggregate(check: dict, path: str, what: str) -> tuple[float, str]:
-    """Count events matching a query over a window, via a Datadog aggregate API.
-
-    Logs and RUM expose byte-identical contracts — `{compute:[{aggregation,type}],
-    filter:{query,from,to}}` in, `data.buckets[].computes` out — so they share
-    this. Verified against RUMQueryFilter/RUMCompute in Datadog's own API client:
-    `from`/`to` are strings accepting relative values like `now-1h`, and `count`
-    is a valid aggregation.
-
-    (APM spans did not share this contract; that connector was removed — see
-    CONNECTORS below.)
-    """
-    body = _datadog_post(
-        path,
-        {
-            "compute": [{"aggregation": "count", "type": "total"}],
-            "filter": {
-                "query": check["query"],
-                "from": f"now-{check['window']}",
-                "to": "now",
-            },
-        },
-        what,
-    )
-    buckets = body.get("data", {}).get("buckets", [])
-    if not buckets:
-        return 0.0, (f"count=0 over {check['window']} "
-                     f"(no matching {what} buckets in window)")
-    computes = buckets[0].get("computes", {})
-    if not computes:
-        return 0.0, f"count=0 over {check['window']}"
-    count = float(next(iter(computes.values())))
-    return count, f"count={num(count)} over {check['window']}"
-
-
-def run_datadog(check: dict) -> tuple[float, str]:
-    """Count Datadog log events matching the query over the window."""
-    return _datadog_aggregate(check, "/api/v2/logs/analytics/aggregate", "log")
-
-
-def run_rum(check: dict) -> tuple[float, str]:
-    """Count Datadog RUM events — browser errors, views, actions.
-
-    CAVEAT worth knowing before trusting a zero: a RUM setup can ingest
-    everything (`sessionSampleRate: 100`, no Limits) and still have *retention
-    filters* decide what stays queryable. A check that returns zero may mean "no
-    such error" or "not retained". Prove the query can be non-zero before relying
-    on it as a regression gate.
-    """
-    return _datadog_aggregate(check, "/api/v2/rum/analytics/aggregate", "RUM")
-
-
-# REMOVED 2026-08-06: `source = "spans"`, which hit
-# /api/v2/spans/analytics/aggregate. It never returned a number worth acting on:
-# seven checks written, three FAIL, four never run, and its only greens were `lt`
-# gates counting zero on a query that matched nothing — including against addresses
-# confirmed correct in the Trace Explorer.
-#
-# Whether that generalizes is unknown; the likely cause was APM retention filters
-# keeping almost nothing in the indexed store the aggregate API reads, and that was
-# never pinned down. Two things about the failure DO generalize, and they are the
-# reason this is a comment rather than a fixed connector:
-#
-#   * A span visible in a trace explorer is not necessarily a countable one. The UI
-#     and the aggregate API can read different stores.
-#   * Query tooling can search a different store than your runner does. Datadog's
-#     MCP tools search with historicalData=true and returned confident non-zero
-#     counts for spans this runner could not see; two repairs of the same spec were
-#     "controlled" against those numbers and both shipped broken. Measure a control
-#     through the same path the runner uses, or you have not measured it.
-#
-# If you want APM: prove one query end to end through THIS code path, then add the
-# connector. Do not reintroduce it on the strength of a count from a UI or an MCP
-# tool.
 
 CONNECTORS = {
     "postgres": run_postgres,
-    "datadog": run_datadog,
-    "rum": run_rum,
+    "telemetry": run_telemetry,
 }
 
 
@@ -836,7 +751,7 @@ path. (`verify-spec` itself still defaults to the current worktree's
 .scratch/verify/ for older specs that live beside their branch.)
 
 [spec]                                 # optional header, used by the board
-title   = "Onsite brief timeline sources"
+title   = "Invoice reminder backfill"
 started = 2026-08-03T14:30:00-04:00   # drives the backoff; defaults to file mtime
 pr      = 9600                        # optional; unmerged PR = spec is held
 repo    = "owner/api-service"          # optional; owner/name, or a bare name
@@ -851,13 +766,14 @@ repo    = "owner/api-service"          # optional; owner/name, or a bare name
 # checks, because nothing is deployed yet and a red would only mean "not shipped".
 
 [[checks]]
-name    = "no orphaned dial actions"   # required, short label
-source  = "postgres"                   # required: postgres | datadog | rum
+name    = "no orphaned reminders"      # required, short label
+source  = "postgres"                   # required: postgres | telemetry
 query   = '''                          # required
-  select count(*) from call_actions where owner_id is null
+  select count(*) from reminders
+  where invoice_id is null and created_at > now() - interval '2 days'
 '''
-metric  = "value"   # "value" = first scalar cell (postgres) / event count
-                    # (datadog); "rows" = number of returned rows (postgres)
+metric  = "value"   # "value" = the first row's first cell;
+                    # "rows" = the number of rows returned
 op      = "eq"      # eq | ne | lt | lte | gt | gte
 value   = 0         # required numeric threshold: assert  metric <op> value
 level   = "alert"   # "alert" (default) = something bad was OBSERVED -> red
@@ -885,70 +801,59 @@ The code default is still `alert` for back-compatibility with specs written befo
 this rule, so set `level` explicitly on every check rather than relying on it.
 
 [[checks]]
-name    = "no call_failed spike"
-source  = "datadog"                    # backend logs
-query   = "env:prod service:api-service-bg @evt.name:call_failed"
-window  = "30m"     # datadog/rum only; relative window, default "1h"
-metric  = "value"   # event count
-op      = "lt"
-value   = 5
-healthy = "fewer than 5 failures in 30m"
-
-[[checks]]
-name    = "no new browser errors"
-source  = "rum"                        # frontend, Datadog RUM
-query   = "@type:error service:webapp env:production"
-window  = "2h"
+name    = "no reminder send failures"
+source  = "telemetry"                  # logs and spans, as SQL
+query   = '''
+  SELECT count() AS n FROM otel_logs
+  WHERE Timestamp >= now() - INTERVAL 30 MINUTE
+    AND ServiceName = 'reminder-worker'
+    AND ResourceAttributes['deployment.environment.name'] = 'production'
+    AND SeverityText = 'ERROR'
+    AND Body ILIKE '%reminder send failed%'
+'''
 metric  = "value"
 op      = "lt"
 value   = 5
-healthy = "browser error rate is at its usual floor"
+level   = "alert"
+healthy = "fewer than 5 send failures in 30m"
 
-Datadog notes — two usable stores, and picking the wrong one fails silently:
-  * `source = "datadog"` is the **Logs** API; `source = "rum"` is browser RUM.
-    They do not share a query language, and a query aimed at the wrong one
-    counts zero rather than erroring.
-  * **There is no APM connector.** One existed until 2026-08-06 and was removed
-    because it could not be made to return a trustworthy count — including
-    against addresses confirmed correct in the Trace Explorer. `validate`
-    rejects `source = "spans"`, and rejects an APM facet (`resource_name:`,
-    `operation_name:`, …) under `"datadog"`/`"rum"` — that second rule is about
-    Datadog's data model, not anyone's config: span facets do not exist on log
-    or RUM events, so such a query counts zero forever.
-  * So if a change's only evidence is a span name or a span tag, it is **not
-    verifiable by this tool as shipped.** Find a log line or a SQL predicate, or
-    say plainly in the PR that this change has no automatable check — do not
-    ship one that cannot fail. (If APM aggregates work against your account,
-    add a connector; see the note above CONNECTORS.) A span *tag* stays
-    unlintable (`@my.span.tag:true` looks exactly like a log attribute), so
-    that one is on the author.
-  * Always scope by `env:` (`env:prod` or `env:production` depending on the
-    emitter). Without it a check silently counts dev and staging traffic.
+That example is written against the OpenTelemetry ClickHouse exporter's default
+schema. Your store's tables, columns and dialect come from `telemetry-query
+--help` — never from this example or from another system's schema.
+
+Telemetry notes:
+  * `source = "telemetry"` runs the query through the telemetry command
+    (`telemetry-query`, or whatever VERIFY_TELEMETRY_CMD names). Run the
+    check's control through that same command, so the check and its control
+    read one store. A count from a UI or another query tool is not a control:
+    it can come from a store the command never reads.
+  * The query is one statement whose first cell is the metric. Alias it
+    (`count() AS n`).
+  * Bound every statement on the store's time column and on whatever leads
+    its sort key, usually the service; `--help` says which. An unbounded count
+    scans all of retention and times out, and a timeout is ERR: unverified,
+    never a pass.
+  * The time bound lives in the statement. There is no `window` field.
+  * Always scope by environment. Without it a check silently counts dev and
+    staging traffic.
+  * Logs and spans are both queryable, so a span name or span attribute is as
+    good an address as a log line, under the same control.
+  * `metric = "rows"` counts returned rows, and the command returns a bounded
+    number of them. When more matched, the check errors rather than report a
+    floor; count in the query instead.
   * **Prove an error gate can go non-zero before trusting its green.** Any
     `lt`/`lte` check observing 0 passes identically whether the system is
     healthy or the query is simply wrong — a typo'd message string, a renamed
-    `@SourceContext`, a wrong service. Run the positive form of the query (drop
-    the `status:error`, widen the window, or point at a period you know had
-    failures) and confirm it returns something.
-
-RUM notes, for a browser frontend:
-  * Scope by `service:<your-rum-service>` and `env:` — check what values your own
-    RUM init actually sends; environment naming is per-setup.
-  * `@type:error` is a JS error; `@type:view` a page view; `@type:action` a
-    tracked user action. Scope every check by service AND env — RUM has no
-    equivalent of a log index to keep environments apart.
-  * RUM events carry `version:<commit sha>` when the init sets it, so a check can
-    be scoped to the exact deploy containing the change: `version:a1b2c3d`.
-  * If a separate error tracker (Sentry or similar) also receives frontend errors,
-    remember this tool queries only RUM; when RUM shows nothing and you expected
-    something, check there before concluding the frontend is clean.
-  * At 100% sampling with no Limits, *retention filters* still decide what stays
-    queryable. A zero can mean "no errors" or "not retained" — prove a query can
-    return non-zero before trusting a zero as a gate.
+    logger category, a wrong service. Run the positive form of the query (drop
+    the error predicate, widen the time bound, or point at a period you know
+    had failures) and confirm it returns something.
+  * There is no browser source. A frontend-only change has no automatable
+    check here; say so in the PR. The backend half of a frontend change — the
+    API call it makes — is checkable as spans.
 
 Check interval, per spec, from `started`: under 6h old -> every 20 minutes;
 under 3 days -> hourly; after that -> daily.
 
-Postgres creds come from the Keychain DSN; Datadog from the Keychain API/app
-keys (set once via `verify-spec setup`). The author never needs the creds.
+Postgres creds come from the Keychain DSN (set once via `verify-spec setup`).
+The telemetry command handles its own login. The author never needs the creds.
 """

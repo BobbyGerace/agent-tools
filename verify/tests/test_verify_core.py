@@ -61,20 +61,20 @@ checks = core.load_spec_file(p)
 check("load_spec_file returns a list of checks", len(checks), 1)
 check("label is stem:name", checks[0]["label"], "legacy:no orphans")
 check("metric defaults to value", checks[0]["metric"], "value")
-check("window defaults to 1h", checks[0]["window"], "1h")
+check("no window field: the time bound lives in the query", "window" in checks[0], False)
 check("value coerced to float", checks[0]["value"], 0.0)
 check("healthy defaults to empty", checks[0]["healthy"], "")
 
 print("\n-- [spec] header --")
 p = write("active/full.toml", """
 [spec]
-title   = "Onsite brief timeline sources"
+title   = "Invoice reminder backfill"
 started = 2026-08-01
 pr      = 9600
 repo    = "api-service"
 """ + MINIMAL)
 spec = core.load_spec(p)
-check("title", spec.title, "Onsite brief timeline sources")
+check("title", spec.title, "Invoice reminder backfill")
 check("started (bare date -> midnight)", spec.started, dt.datetime(2026, 8, 1, 0, 0))
 check("pr", spec.pr, 9600)
 check("repo", spec.repo, "api-service")
@@ -156,9 +156,9 @@ raises("started wrong type", lambda: core.load_spec(write("bad10.toml", '[spec]\
 raises("bad pr", lambda: core.load_spec(write("bad9.toml", '[spec]\npr = "nine thousand"\n' + MINIMAL)))
 
 print("\n-- no network was touched --")
-# another session added `spans`; assert the set contains what this suite knows
-# about rather than pinning it, so a new connector doesn't fail an unrelated test
-for expected in ("postgres", "datadog", "rum"):
+# assert the set contains what this suite knows about rather than pinning it,
+# so a new connector doesn't fail an unrelated test
+for expected in ("postgres", "telemetry"):
     check(f"{expected} connector registered", expected in core.CONNECTORS, True)
 
 print()

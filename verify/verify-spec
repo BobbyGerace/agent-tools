@@ -3,11 +3,12 @@
 
 Two roles, deliberately split:
 
-  * AUTHOR (Claude): writes a declarative TOML spec — pure data (SQL / Datadog
-    query + a pass/fail threshold). Can run `schema` and `validate` (both
-    network-free). Must NOT run `run`/`watch` against prod.
-  * RUNNER (you): `run` / `watch` execute against prod, reading readonly creds
-    from the macOS Keychain. This is the only path that touches the network.
+  * AUTHOR (Claude): writes a declarative TOML spec — pure data (SQL against
+    Postgres or the telemetry store + a pass/fail threshold). Can run `schema`
+    and `validate` (both network-free). Must NOT run `run`/`watch` against prod.
+  * RUNNER (you): `run` / `watch` execute against prod, reading a readonly
+    Postgres DSN from the macOS Keychain and querying telemetry through the
+    telemetry command, which holds its own login.
 
 Spec loading, credentials, connectors, and evaluation live in `verify_core`,
 shared with `verify-board`. This file is the single-spec CLI: argument parsing
@@ -144,12 +145,9 @@ def cmd_setup(args) -> int:
     print("Leave a prompt blank to skip (keep the existing value).\n")
     _maybe_store(core.KC_PG_DSN, "Prod readonly Postgres DSN "
                  "(postgresql://user:pass@host:5432/db)")
-    _maybe_store(core.KC_DD_API_KEY, "Datadog API key")
-    _maybe_store(core.KC_DD_APP_KEY, "Datadog application key")
-    site = input(f"Datadog site [{core.DEFAULT_DD_SITE}]: ").strip()
-    if site:
-        core.keychain_set(core.KC_DD_SITE, site, binary=__file__)
-    print("\nDone. Try: verify-spec run <spec.toml>")
+    print(f"\nTelemetry checks need no creds here: `{core.TELEMETRY_CMD}` holds "
+          "its own login.")
+    print("Done. Try: verify-spec run <spec.toml>")
     return 0
 
 

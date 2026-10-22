@@ -68,8 +68,8 @@ healthy = "zero is good"
 
 [[checks]]
 name   = "check two"
-source = "datadog"
-query  = "service:x"
+source = "telemetry"
+query  = "SELECT count() AS n FROM logs"
 op     = "gt"
 value  = 0
 healthy = "some events means it is alive"
